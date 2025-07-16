@@ -3,13 +3,21 @@
   "module": "index.ts",
   "type": "module",
   "private": true,
+  "scripts": {
+    "dev": "bun run --watch src/server.ts",
+    "start": "bun run src/server.ts",
+    "build": "bun build src/server.ts --outdir dist",
+    "test": "bun run src/test-client.ts"
+  },
   "devDependencies": {
-    "@types/bun": "latest"
+    "@types/bun": "latest",
+    "@types/ws": "^8.5.10"
   },
   "peerDependencies": {
     "typescript": "^5"
   },
   "dependencies": {
-    "socket.io": "^4.8.1"
+    "socket.io": "^4.8.1",
+    "ws": "^8.16.0"
   }
 }
