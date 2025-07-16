@@ -35,6 +35,24 @@ export const joinRoom = (ws: ServerWebSocket<unknown>, userId: UserId, roomId: R
   broadcast(room, "room-ready", { players: room.map(p => p.userId) });
 };
 
+export const handleUserLeave = (ws: ServerWebSocket<unknown>) => {
+  const userId = wsToUser.get(ws);
+  if (!userId) return;
+
+  for (const [roomId, players] of rooms.entries()) {
+    const playerIndex = players.findIndex(p => p.userId === userId);
+    if (playerIndex !== -1) {
+      const remainingPlayer = players[playerIndex === 0 ? 1 : 0];
+      if (remainingPlayer) {
+        broadcast(players, "game-over", { results: { winner: remainingPlayer.userId, reason: "opponent_left" } });
+      }
+      rooms.delete(roomId);
+      break;
+    }
+  }
+  wsToUser.delete(ws);
+};
+
 export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
   const room = rooms.get(roomId);
   if (!room) return;
