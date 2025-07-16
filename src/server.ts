@@ -8,7 +8,7 @@ serve({
   port: 3000,
   fetch(req, server) {
     if (server.upgrade(req)) {
-      return; // Upgraded to WebSocket
+      return;
     }
     return new Response("Expected WebSocket connection", { status: 426 });
   },
@@ -36,8 +36,11 @@ serve({
         case "join-room":
           if (data.roomId) joinRoom(ws, data.userId, data.roomId);
           break;
-        case "start-round":
         case "submit-answer":
+          if (data.roomId && data.questionId !== undefined && data.answer !== undefined) {
+            handleGameEvent(data.type, data.roomId, data);
+          }
+          break;
         case "game-over":
           if (data.roomId) handleGameEvent(data.type, data.roomId, data);
           break;
