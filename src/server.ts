@@ -6,12 +6,25 @@ import { handleDisconnect, wsToUser } from "./lib/connections";
 
 serve({
   port: 3000,
-  fetch: () => new Response("OK"),
+  fetch(req, server) {
+    if (server.upgrade(req)) {
+      return; // Upgraded to WebSocket
+    }
+    return new Response("Expected WebSocket connection", { status: 426 });
+  },
   websocket: {
-    open: () => {},
+    open: () => {
+      console.log("Client connected");
+    },
     message(ws, msg) {
       let data: Message;
-      try { data = JSON.parse(msg.toString()); } catch { return; }
+      try { 
+        data = JSON.parse(msg.toString()); 
+        console.log("Received message:", data);
+      } catch { 
+        console.error("Invalid JSON message");
+        return; 
+      }
       
       switch (data.type) {
         case "join-matchmaking":
@@ -30,7 +43,10 @@ serve({
           break;
       }
     },
-    close: handleDisconnect
+    close(ws) {
+      console.log("Client disconnected");
+      handleDisconnect(ws);
+    }
   }
 });
 

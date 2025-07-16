@@ -1,5 +1,3 @@
-import { WebSocket } from "bun:web";
-
 const ws = new WebSocket("ws://localhost:3000");
 const userId = "test-user-" + Math.random().toString(36).slice(2, 7);
 
@@ -16,7 +14,7 @@ ws.onopen = () => {
   ws.send(JSON.stringify(message));
 };
 
-ws.onmessage = (event: MessageEvent) => {
+ws.onmessage = (event) => {
   try {
     const message = JSON.parse(event.data);
     console.log("Received:", message);
@@ -25,7 +23,7 @@ ws.onmessage = (event: MessageEvent) => {
   }
 };
 
-ws.onclose = (event: CloseEvent) => {
+ws.onclose = (event) => {
   console.log("Connection closed:", {
     code: event.code,
     reason: event.reason,
@@ -33,6 +31,6 @@ ws.onclose = (event: CloseEvent) => {
   });
 };
 
-ws.onerror = (event: Event) => {
+ws.onerror = (event) => {
   console.error("WebSocket error:", event);
 }; 
