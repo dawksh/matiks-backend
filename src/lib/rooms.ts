@@ -15,7 +15,7 @@ export const gameStates = new Map<RoomId, GameState>();
 export const ROUND_TIME_LIMIT = 30000;
 export const READY_TIME = 5000;
 
-const generateQuestion = (): Question => {
+export const generateQuestion = (): Question => {
   const a = Math.floor(Math.random() * 100);
   const b = Math.floor(Math.random() * 100);
   const id = Math.random().toString(36).slice(2, 8);
@@ -66,9 +66,8 @@ export const joinRoom = (
   const startTime = Date.now() + 3000;
   const gameState: GameState = {
     startTime,
-    questions: generateQuestions(5),
+    currentQuestion: generateQuestion(),
     scores: new Map(room.map((p) => [p.userId, 0])),
-    currentQuestionIndex: 0
   };
   gameStates.set(roomId, gameState);
 
@@ -85,27 +84,33 @@ const startGame = (roomId: RoomId) => {
   const gameState = gameStates.get(roomId);
   if (!room || !gameState) return;
 
-  const questions = Array.from(gameState.questions.values());
-  gameState.currentQuestionIndex = 0;
+  const nextQuestion = generateQuestion();
+  gameState.currentQuestion = nextQuestion;
   
   broadcast(room, "game-start", { 
-    question: questions[0],
+    question: nextQuestion,
     timeLeft: ROUND_TIME_LIMIT
   });
 
-  const roundTimer = setTimeout(() => {
+  if (gameState.roundTimer) {
+    clearTimeout(gameState.roundTimer);
+  }
+
+  gameState.roundTimer = setTimeout(() => {
     const currentRoom = rooms.get(roomId);
     const currentState = gameStates.get(roomId);
     if (!currentRoom || !currentState) return;
 
     const scores = Object.fromEntries(currentState.scores);
-    const winner = Array.from(currentState.scores.entries()).reduce((a, b) => 
-      a[1] > b[1] ? a : b
-    )[0];
+    const playerScores = Array.from(currentState.scores.entries());
+    const maxScore = Math.max(...playerScores.map(([_, score]) => score));
+    const winners = playerScores
+      .filter(([_, score]) => score === maxScore)
+      .map(([userId]) => userId);
 
     broadcast(currentRoom, "round-end", {
       results: {
-        winner,
+        winner: winners.length > 1 ? "tie" : winners[0],
         scores,
         reason: "time_limit"
       }
@@ -113,8 +118,6 @@ const startGame = (roomId: RoomId) => {
     rooms.delete(roomId);
     gameStates.delete(roomId);
   }, ROUND_TIME_LIMIT);
-
-  gameState.roundTimer = roundTimer;
 };
 
 export const handleUserLeave = (ws: ServerWebSocket<unknown>) => {
@@ -154,9 +157,8 @@ export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
   if (!room || !gameState) return;
 
   if (type === "submit-answer") {
-    const { userId, questionId, answer } = data;
-    const questions = Array.from(gameState.questions.values());
-    const question = gameState.questions.get(questionId);
+    const { userId, answer } = data;
+    const question = gameState.currentQuestion;
     const isCorrect = question && question.answer === answer;
     
     if (isCorrect) {
@@ -169,17 +171,15 @@ export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
 
     broadcast(room, "answer-result", {
       userId,
-      questionId,
+      questionId: question.id,
       correct: isCorrect
     });
 
-    if (gameState.currentQuestionIndex < questions.length - 1) {
-      gameState.currentQuestionIndex++;
-      const nextQuestion = questions[gameState.currentQuestionIndex];
-      broadcast(room, "next-question", {
-        question: nextQuestion
-      });
-    }
+    const nextQuestion = generateQuestion();
+    gameState.currentQuestion = nextQuestion;
+    broadcast(room, "next-question", {
+      question: nextQuestion
+    });
   } else {
     broadcast(room, type, data);
   }

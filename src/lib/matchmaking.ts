@@ -1,21 +1,10 @@
 import type { ServerWebSocket } from "bun";
 import type { Player, UserId, RoomId } from "./types";
 import { send, broadcast } from "./websocket";
-import { rooms, gameStates, READY_TIME, ROUND_TIME_LIMIT } from "./rooms";
+import { rooms, gameStates, READY_TIME, ROUND_TIME_LIMIT, generateQuestion } from "./rooms";
 import { wsToUser } from "./connections";
 
 export const queue: Player[] = [];
-
-const generateQuestions = (count: number) => {
-  const questions = new Map();
-  for (let i = 0; i < count; i++) {
-    const a = Math.floor(Math.random() * 100);
-    const b = Math.floor(Math.random() * 100);
-    const id = Math.random().toString(36).slice(2, 8);
-    questions.set(id, { id, question: `${a} + ${b}`, answer: a + b });
-  }
-  return questions;
-};
 
 export const handleMatchmaking = (ws: ServerWebSocket<unknown>, userId: UserId) => {
   if (queue.some(p => p.userId === userId)) {
@@ -39,9 +28,9 @@ const createMatch = () => {
   const startTime = Date.now() + READY_TIME;
   const gameState = {
     startTime,
-    questions: new Map(),
+    currentQuestion: generateQuestion(),
     scores: new Map([[p1.userId, 0], [p2.userId, 0]]),
-    currentQuestionIndex: 0
+    roundTimer: undefined
   };
   gameStates.set(roomId, gameState);
 
@@ -53,17 +42,39 @@ const createMatch = () => {
 
   setTimeout(() => {
     const room = rooms.get(roomId);
-    if (!room) return;
-    
     const gameState = gameStates.get(roomId);
-    if (!gameState) return;
-    
-    gameState.questions = generateQuestions(5);
-    const questions = Array.from(gameState.questions.values());
+    if (!room || !gameState) return;
     
     broadcast(room, "game-start", {
-      question: questions[0],
+      question: gameState.currentQuestion,
       timeLeft: ROUND_TIME_LIMIT
     });
+
+    if (gameState.roundTimer) {
+      clearTimeout(gameState.roundTimer);
+    }
+
+    gameState.roundTimer = setTimeout(() => {
+      const currentRoom = rooms.get(roomId);
+      const currentState = gameStates.get(roomId);
+      if (!currentRoom || !currentState) return;
+
+      const scores = Object.fromEntries(currentState.scores);
+      const playerScores = Array.from(currentState.scores.entries());
+      const maxScore = Math.max(...playerScores.map(([_, score]) => score));
+      const winners = playerScores
+        .filter(([_, score]) => score === maxScore)
+        .map(([userId]) => userId);
+
+      broadcast(currentRoom, "round-end", {
+        results: {
+          winner: winners.length > 1 ? "tie" : winners[0],
+          scores,
+          reason: "time_limit"
+        }
+      });
+      rooms.delete(roomId);
+      gameStates.delete(roomId);
+    }, ROUND_TIME_LIMIT);
   }, READY_TIME);
 }; 
