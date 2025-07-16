@@ -12,6 +12,8 @@ import { wsToUser } from "./connections";
 
 export const rooms = new Map<RoomId, Player[]>();
 export const gameStates = new Map<RoomId, GameState>();
+export const ROUND_TIME_LIMIT = 30000;
+export const READY_TIME = 5000;
 
 const generateQuestion = (): Question => {
   const a = Math.floor(Math.random() * 100);
@@ -66,6 +68,7 @@ export const joinRoom = (
     startTime,
     questions: generateQuestions(5),
     scores: new Map(room.map((p) => [p.userId, 0])),
+    currentQuestionIndex: 0
   };
   gameStates.set(roomId, gameState);
 
@@ -83,7 +86,35 @@ const startGame = (roomId: RoomId) => {
   if (!room || !gameState) return;
 
   const questions = Array.from(gameState.questions.values());
-  broadcast(room, "game-start", { questions });
+  gameState.currentQuestionIndex = 0;
+  
+  broadcast(room, "game-start", { 
+    question: questions[0],
+    timeLeft: ROUND_TIME_LIMIT
+  });
+
+  const roundTimer = setTimeout(() => {
+    const currentRoom = rooms.get(roomId);
+    const currentState = gameStates.get(roomId);
+    if (!currentRoom || !currentState) return;
+
+    const scores = Object.fromEntries(currentState.scores);
+    const winner = Array.from(currentState.scores.entries()).reduce((a, b) => 
+      a[1] > b[1] ? a : b
+    )[0];
+
+    broadcast(currentRoom, "round-end", {
+      results: {
+        winner,
+        scores,
+        reason: "time_limit"
+      }
+    });
+    rooms.delete(roomId);
+    gameStates.delete(roomId);
+  }, ROUND_TIME_LIMIT);
+
+  gameState.roundTimer = roundTimer;
 };
 
 export const handleUserLeave = (ws: ServerWebSocket<unknown>) => {
@@ -94,8 +125,14 @@ export const handleUserLeave = (ws: ServerWebSocket<unknown>) => {
     const playerIndex = players.findIndex((p) => p.userId === userId);
     if (playerIndex !== -1) {
       const remainingPlayer = players[playerIndex === 0 ? 1 : 0];
+      const gameState = gameStates.get(roomId);
+      
+      if (gameState?.roundTimer) {
+        clearTimeout(gameState.roundTimer);
+      }
+      
       if (remainingPlayer) {
-        broadcast(players, "game-over", {
+        broadcast(players, "round-end", {
           results: {
             winner: remainingPlayer.userId,
             reason: "opponent_left",
@@ -118,35 +155,29 @@ export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
 
   if (type === "submit-answer") {
     const { userId, questionId, answer } = data;
+    const questions = Array.from(gameState.questions.values());
     const question = gameState.questions.get(questionId);
-    if (question && question.answer === answer) {
+    const isCorrect = question && question.answer === answer;
+    
+    if (isCorrect) {
       gameState.scores.set(userId, (gameState.scores.get(userId) || 0) + 1);
-      broadcast(room, "answer-result", {
+      broadcast(room, "point-update", {
         userId,
-        questionId,
-        correct: true,
-        scores: Object.fromEntries(gameState.scores),
+        scores: Object.fromEntries(gameState.scores)
       });
     }
+    
+    broadcast(room, "answer-result", {
+      userId,
+      questionId,
+      correct: isCorrect
+    });
 
-    if (
-      Array.from(gameState.scores.values()).reduce((a, b) => a + b) ===
-      gameState.questions.size
-    ) {
-      const scores = Object.fromEntries(gameState.scores);
-      const winner = Array.from(gameState.scores.entries()).reduce((a, b) =>
-        a[1] > b[1] ? a : b
-      )[0];
-
-      broadcast(room, "game-over", {
-        results: {
-          winner,
-          scores,
-          reason: "game_complete",
-        },
+    if (gameState.currentQuestionIndex < questions.length - 1) {
+      gameState.currentQuestionIndex++;
+      broadcast(room, "next-question", {
+        question: questions[gameState.currentQuestionIndex]
       });
-      rooms.delete(roomId);
-      gameStates.delete(roomId);
     }
   } else {
     broadcast(room, type, data);

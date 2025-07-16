@@ -20,6 +20,8 @@ export type GameState = {
   startTime: number;
   questions: Map<QuestionId, Question>;
   scores: Map<UserId, number>;
+  currentQuestionIndex: number;
+  roundTimer?: NodeJS.Timeout;
 };
 
 export type Message = { 
