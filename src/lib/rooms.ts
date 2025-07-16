@@ -166,7 +166,7 @@ export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
         scores: Object.fromEntries(gameState.scores)
       });
     }
-    
+
     broadcast(room, "answer-result", {
       userId,
       questionId,
@@ -175,8 +175,9 @@ export const handleGameEvent = (type: string, roomId: RoomId, data: any) => {
 
     if (gameState.currentQuestionIndex < questions.length - 1) {
       gameState.currentQuestionIndex++;
+      const nextQuestion = questions[gameState.currentQuestionIndex];
       broadcast(room, "next-question", {
-        question: questions[gameState.currentQuestionIndex]
+        question: nextQuestion
       });
     }
   } else {
