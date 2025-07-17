@@ -16,19 +16,40 @@ export const ROUND_TIME_LIMIT = 30000;
 export const READY_TIME = 5000;
 
 export const generateQuestion = (): Question => {
-  const a = Math.floor(Math.random() * 100);
-  const b = Math.floor(Math.random() * 100);
-  const id = Math.random().toString(36).slice(2, 8);
-  return { id, question: `${a} + ${b}`, answer: a + b };
-};
+  const opType = ["+", "-", "*", "/"][Math.floor(Math.random() * 4)];
+  let a = 0, b = 0, question = "", answer = 0;
 
-const generateQuestions = (count: number): Map<QuestionId, Question> => {
-  const questions = new Map();
-  for (let i = 0; i < count; i++) {
-    const q = generateQuestion();
-    questions.set(q.id, q);
+  if (opType === "+") {
+    a = Math.floor(Math.random() * 150);
+    b = Math.floor(Math.random() * 150);
+    question = `${a} + ${b}`;
+    answer = a + b;
+  } else if (opType === "-") {
+    a = Math.floor(Math.random() * 100);
+    b = Math.floor(Math.random() * 100);
+    if (a < b) [a, b] = [b, a];
+    question = `${a} - ${b}`;
+    answer = a - b;
+  } else if (opType === "*") {
+    if (Math.random() < 0.5) {
+      a = Math.floor(Math.random() * 10);
+      b = Math.floor(Math.random() * 10);
+    } else {
+      a = Math.floor(Math.random() * 40) + 10;
+      b = Math.floor(Math.random() * 10);
+      if (Math.random() < 0.5) [a, b] = [b, a];
+    }
+    question = `${a} * ${b}`;
+    answer = a * b;
+  } else if (opType === "/") {
+    b = Math.floor(Math.random() * 9) + 1;
+    answer = Math.floor(Math.random() * 10) + 1;
+    a = b * answer;
+    question = `${a} / ${b}`;
   }
-  return questions;
+
+  const id = Math.random().toString(36).slice(2, 8);
+  return { id, question, answer };
 };
 
 export const createRoom = (ws: ServerWebSocket<unknown>, userId: UserId) => {
