@@ -1,8 +1,9 @@
 import type { ServerWebSocket } from "bun";
 import type { Player, UserId, RoomId } from "./types";
 import { send, broadcast } from "./websocket";
-import { rooms, gameStates, READY_TIME, ROUND_TIME_LIMIT, generateQuestion } from "./rooms";
+import {  READY_TIME, ROUND_TIME_LIMIT, generateQuestion } from "./rooms";
 import { wsToUser } from "./connections";
+import { setRoomData, getRoomData, delRoomData } from "./redis";
 
 export const queue: Player[] = [];
 
@@ -18,63 +19,50 @@ export const handleMatchmaking = (ws: ServerWebSocket<unknown>, userId: UserId) 
   if (queue.length >= 2) createMatch();
 };
 
-const createMatch = () => {
+const createMatch = async () => {
   const [p1, p2] = [queue.shift(), queue.shift()];
   if (!p1 || !p2) return;
-  
   const roomId = `room-${Date.now()}`;
-  rooms.set(roomId, [p1, p2]);
-  
   const startTime = Date.now() + READY_TIME;
   const gameState = {
     startTime,
     currentQuestion: generateQuestion(),
-    scores: new Map([[p1.userId, 0], [p2.userId, 0]]),
-    roundTimer: undefined
+    scores: { [p1.userId]: 0, [p2.userId]: 0 },
   };
-  gameStates.set(roomId, gameState);
-
-  [p1, p2].forEach(p => send(p.ws, "match-found", { roomId }));
-  broadcast([p1, p2], "room-ready", { 
-    players: [p1.userId, p2.userId],
-    startTime
+  await setRoomData(roomId, {
+    players: [
+      { userId: p1.userId, score: 0 },
+      { userId: p2.userId, score: 0 },
+    ],
+    gameState,
   });
-
-  setTimeout(() => {
-    const room = rooms.get(roomId);
-    const gameState = gameStates.get(roomId);
-    if (!room || !gameState) return;
-    
-    broadcast(room, "game-start", {
-      question: gameState.currentQuestion,
-      timeLeft: ROUND_TIME_LIMIT
+  [p1, p2].forEach((p) => send(p.ws, "match-found", { roomId }));
+  broadcast([p1, p2], "room-ready", {
+    players: [p1.userId, p2.userId],
+    startTime,
+  });
+  setTimeout(async () => {
+    const data = await getRoomData(roomId);
+    if (!data || !data.players || !data.gameState) return;
+    broadcast(data.players, "game-start", {
+      question: data.gameState.currentQuestion,
+      timeLeft: ROUND_TIME_LIMIT,
     });
-
-    if (gameState.roundTimer) {
-      clearTimeout(gameState.roundTimer);
-    }
-
-    gameState.roundTimer = setTimeout(() => {
-      const currentRoom = rooms.get(roomId);
-      const currentState = gameStates.get(roomId);
-      if (!currentRoom || !currentState) return;
-
-      const scores = Object.fromEntries(currentState.scores);
-      const playerScores = Array.from(currentState.scores.entries());
-      const maxScore = Math.max(...playerScores.map(([_, score]) => score));
-      const winners = playerScores
-        .filter(([_, score]) => score === maxScore)
-        .map(([userId]) => userId);
-
-      broadcast(currentRoom, "round-end", {
+    setTimeout(async () => {
+      const d = await getRoomData(roomId);
+      if (!d || !d.players || !d.gameState) return;
+      const scores = d.gameState.scores;
+      const playerScores = Object.entries(scores);
+      const maxScore = Math.max(...playerScores.map(([_, score]) => Number(score)));
+      const winners = playerScores.filter(([_, score]) => Number(score) === maxScore).map(([userId]) => userId);
+      broadcast(d.players, "round-end", {
         results: {
           winner: winners.length > 1 ? "tie" : winners[0],
           scores,
-          reason: "time_limit"
-        }
+          reason: "time_limit",
+        },
       });
-      rooms.delete(roomId);
-      gameStates.delete(roomId);
+      await delRoomData(roomId);
     }, ROUND_TIME_LIMIT);
   }, READY_TIME);
 }; 

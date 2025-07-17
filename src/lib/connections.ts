@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { UserId } from "./types";
 import { queue } from "./matchmaking";
-import { rooms, handleUserLeave } from "./rooms";
+import { handleUserLeave } from "./rooms";
 
 export const wsToUser = new Map<ServerWebSocket<unknown>, UserId>();
 
