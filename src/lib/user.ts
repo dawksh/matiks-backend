@@ -11,7 +11,6 @@ export const handleUserConnect = async (
       fid,
     },
   });
-
   if (!user) {
     user = await prisma.user.create({
       data: {

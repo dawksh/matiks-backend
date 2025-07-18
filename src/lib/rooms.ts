@@ -139,12 +139,6 @@ const startGame = async (roomId: RoomId) => {
     const playerScores = Object.entries(scores);
     const maxScore = Math.max(...playerScores.map(([_, score]) => Number(score)));
     const winners = playerScores.filter(([_, score]) => Number(score) === maxScore).map(([userId]) => userId);
-    await prisma.game.create({
-      data: {
-        players: { connect: players.map((p: any) => ({ id: p.userId })) },
-        winner: { connect: { id: winners[0] } },
-      },
-    });
     broadcast(players, "round-end", {
       results: {
         winner: winners.length > 1 ? "tie" : winners[0],
@@ -153,6 +147,27 @@ const startGame = async (roomId: RoomId) => {
       },
     });
     await delRoomData(roomId);
+    const userIds = players.map((p: any) => p.userId);
+    const users = await prisma.user.findMany({ where: { fid: { in: userIds } } });
+    if (users.length !== userIds.length) {
+      console.log(users, userIds)
+      return
+    }; // or handle error
+    if (!users.find(u => u.fid === winners[0])) return; // or handle error
+    userIds.forEach(async (userId: string) => {
+      await prisma.user.update({
+        where: { fid: userId },
+        data: {
+          points: {increment: scores[userId]},
+        }
+      })
+    })
+    await prisma.game.create({
+      data: {
+        players: { connect: users.map((u: any) => ({ id: u.id })) },
+        winner: { connect: { id: users.find(u => u.fid === winners[0])?.id } },
+      },
+    });
   }, ROUND_TIME_LIMIT);
 };
 

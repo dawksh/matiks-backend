@@ -34,7 +34,7 @@ const handleQuestion = (question: { id: string; question: string }) => {
 
 ws.onopen = () => {
   console.log("Connected to server");
-  ws.send(JSON.stringify({ type: "register-user", fid: "userId", displayName: "Test User", profilePictureUrl: "https://example.com/profile.png", username: "testuser" }));
+  ws.send(JSON.stringify({ type: "register-user", fid: userId, displayName: `@${userId}`, profilePictureUrl: "https://example.com/profile.png", username: userId }));
   ws.send(JSON.stringify({ type: "join-matchmaking", userId }));
   console.log("Joined matchmaking queue");
 };
