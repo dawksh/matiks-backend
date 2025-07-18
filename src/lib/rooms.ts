@@ -9,7 +9,7 @@ import { wsToUser } from "./connections";
 import { setRoomData, getRoomData, delRoomData, setUserRoom, getUserRoom, delUserRoom } from "./redis";
 import { prisma } from "./prisma";
 
-export const ROUND_TIME_LIMIT = 30000;
+export const ROUND_TIME_LIMIT = 60000;
 export const READY_TIME = 10000;
 
 export const generateQuestion = (): Question => {
