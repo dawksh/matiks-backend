@@ -210,63 +210,6 @@ const startGame = async (roomId: RoomId) => {
   }, ROUND_TIME_LIMIT);
 };
 
-export const handleUserLeave = async (ws: ServerWebSocket<unknown>) => {
-  const userId = wsToUser.get(ws);
-  if (!userId) return;
-  const roomId = await getUserRoom(userId);
-  if (!roomId) {
-    wsToUser.delete(ws);
-    await delUserRoom(userId);
-    return;
-  }
-  const data = await getRoomData(roomId);
-  if (!data || !data.players) {
-    wsToUser.delete(ws);
-    await delUserRoom(userId);
-    return;
-  }
-  const players = data.players.filter((p: any) => p.userId !== userId);
-  wsToUser.delete(ws);
-  await delUserRoom(userId);
-  if (players.length === 1) {
-    const winnerId = players[0].userId;
-    const score = data.gameState?.scores?.[winnerId] || 0;
-    const users = await prisma.user.findMany({
-      where: { fid: { in: [winnerId, userId] } },
-    });
-    const winner = users.find((u) => u.fid === winnerId);
-    if (winner) {
-      await prisma.user.update({
-        where: { fid: winnerId },
-        data: { points: { increment: score } },
-      });
-      await prisma.game.create({
-        data: {
-          players: { connect: users.map((u: any) => ({ id: u.id })) },
-          winner: { connect: { id: winner.id } },
-          winnerPoints: score,
-          loserPoints: data.gameState?.scores?.[userId] || 0,
-        },
-      });
-    }
-    const wsWinner = [...wsToUser.entries()].find(
-      ([w, uid]) => uid === winnerId
-    )?.[0];
-    if (wsWinner)
-      send(wsWinner, "round-end", {
-        results: {
-          winner: winnerId,
-          scores: data.gameState?.scores || {},
-          reason: "opponent_left",
-        },
-      });
-    await delRoomData(roomId);
-    await delUserRoom(winnerId);
-  } else {
-    await setRoomData(roomId, { ...data, players });
-  }
-};
-
 export const handleGameEvent = async (
   type: string,
   roomId: RoomId,
