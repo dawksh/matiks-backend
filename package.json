@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "bun run --watch src/server.ts",
     "start": "bun run src/server.ts",
-    "build": "bun build src/server.ts --target bun --outdir dist",
+    "build": "bun build src/server.ts --target bun --outdir dist && bunx prisma generate",
     "test": "bun run src/test-client.ts",
     "db:gen": "bunx prisma generate",
     "db:push": "bunx prisma db push"
