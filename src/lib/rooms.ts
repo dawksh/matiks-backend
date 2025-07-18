@@ -102,7 +102,7 @@ export const joinRoom = async (
   const players = [...data.players, player];
   wsToUser.set(ws, userId);
   await setUserRoom(userId, roomId);
-  const startTime = Date.now() + 3000;
+  const startTime = Date.now() + READY_TIME;
   const gameState = {
     startTime,
     currentQuestion: generateQuestion(),
@@ -113,7 +113,7 @@ export const joinRoom = async (
     players: players.map((p: any) => p.userId),
     startTime,
   });
-  setTimeout(() => startGame(roomId), 3000);
+  setTimeout(() => startGame(roomId), READY_TIME);
 };
 
 const startGame = async (roomId: RoomId) => {
