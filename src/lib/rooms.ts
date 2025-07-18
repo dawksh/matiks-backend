@@ -64,7 +64,7 @@ export const createRoomWithPlayers = async (players: { userId: UserId, ws: Serve
   const playerObjs = players.map(p => ({ userId: p.userId, ws: p.ws, score: 0 }));
   await Promise.all(playerObjs.map(p => setUserRoom(p.userId, roomId)));
   playerObjs.forEach(p => wsToUser.set(p.ws, p.userId));
-  const startTime = Date.now() + 3000;
+  const startTime = Date.now() + READY_TIME;
   const gameState = {
     startTime,
     currentQuestion: generateQuestion(),
@@ -77,7 +77,7 @@ export const createRoomWithPlayers = async (players: { userId: UserId, ws: Serve
     players: playerObjs.map(p => p.userId),
     startTime,
   });
-  setTimeout(() => startGame(roomId), 3000);
+  setTimeout(() => startGame(roomId), READY_TIME);
 };
 
 export const joinRoom = async (
