@@ -6,7 +6,7 @@ export const handleUserConnect = async (
   profilePictureUrl: string,
   username: string
 ) => {
-  let user = await prisma.user.findUnique({
+  let user = await prisma.user.findFirst({
     where: {
       fid,
     },

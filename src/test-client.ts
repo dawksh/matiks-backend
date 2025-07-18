@@ -1,4 +1,4 @@
-const ws = new WebSocket("ws://localhost:3000/ws");
+const ws = new WebSocket("wss://matiks-backend-production.up.railway.app/ws");
 const userId = "test-user-" + Math.random().toString(36).slice(2, 7);
 let currentQuestionId: string | null = null;
 let currentRoomId: string | null = null;
@@ -10,23 +10,35 @@ const calculateAnswer = (question: string): number => {
   const a = parseInt(aRaw ?? "");
   const b = parseInt(bRaw ?? "");
   if (isNaN(a) || isNaN(b)) return 0;
-  return op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : op === '/' ? Math.floor(a / b) : 0;
+  return op === "+"
+    ? a + b
+    : op === "-"
+    ? a - b
+    : op === "*"
+    ? a * b
+    : op === "/"
+    ? Math.floor(a / b)
+    : 0;
 };
 
 const handleQuestion = (question: { id: string; question: string }) => {
   currentQuestionId = question.id;
   const answer = calculateAnswer(question.question);
-  console.log(`Processing question ${question.id}: ${question.question} = ${answer}`);
-  
+  console.log(
+    `Processing question ${question.id}: ${question.question} = ${answer}`
+  );
+
   setTimeout(() => {
     if (currentQuestionId === question.id && currentRoomId) {
-      ws.send(JSON.stringify({
-        type: "submit-answer",
-        userId,
-        roomId: currentRoomId,
-        questionId: question.id,
-        answer
-      }));
+      ws.send(
+        JSON.stringify({
+          type: "submit-answer",
+          userId,
+          roomId: currentRoomId,
+          questionId: question.id,
+          answer,
+        })
+      );
       console.log(`Submitted answer for ${question.id}: ${answer}`);
     }
   }, 1000);
@@ -34,7 +46,15 @@ const handleQuestion = (question: { id: string; question: string }) => {
 
 ws.onopen = () => {
   console.log("Connected to server");
-  ws.send(JSON.stringify({ type: "register-user", fid: userId, displayName: `@${userId}`, profilePictureUrl: "https://example.com/profile.png", username: userId }));
+  ws.send(
+    JSON.stringify({
+      type: "register-user",
+      fid: userId,
+      displayName: `@${userId}`,
+      profilePictureUrl: "https://example.com/profile.png",
+      username: userId,
+    })
+  );
   ws.send(JSON.stringify({ type: "join-matchmaking", userId }));
   console.log("Joined matchmaking queue");
 };
@@ -86,8 +106,10 @@ ws.onmessage = (event) => {
         console.log("Round ended!", {
           winner: winner === userId ? "You" : "Opponent",
           yourScore: scores[userId],
-          opponentScore: Object.values(scores).find(s => s !== scores[userId]),
-          reason
+          opponentScore: Object.values(scores).find(
+            (s) => s !== scores[userId]
+          ),
+          reason,
         });
         break;
 
@@ -100,7 +122,7 @@ ws.onmessage = (event) => {
   }
 };
 
-ws.onclose = ({ code, reason, wasClean }) => 
+ws.onclose = ({ code, reason, wasClean }) =>
   console.log("Connection closed:", { code, reason, wasClean });
 
-ws.onerror = (event) => console.error("WebSocket error:", event); 
+ws.onerror = (event) => console.error("WebSocket error:", event);
