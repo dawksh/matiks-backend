@@ -2,7 +2,8 @@ import { serve } from "bun";
 import type { Message } from "./lib/types";
 import { handleMatchmaking } from "./lib/matchmaking";
 import { createRoom, joinRoom, handleGameEvent } from "./lib/rooms";
-import { handleDisconnect, wsToUser } from "./lib/connections";
+import { handleDisconnect } from "./lib/connections";
+import { handleUserConnect } from "./lib/user";
 
 serve({
   port: 3000,
@@ -44,6 +45,8 @@ serve({
         case "game-over":
           if (data.roomId) handleGameEvent(data.type, data.roomId, data);
           break;
+        case "register-user":
+            handleUserConnect(data.fid!, data.displayName!, data.profilePictureUrl!);
       }
     },
     close(ws) {

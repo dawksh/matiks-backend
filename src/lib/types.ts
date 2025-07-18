@@ -30,4 +30,7 @@ export type Message = {
   questionId?: QuestionId;
   answer?: number; 
   results?: any;
+  fid?: string;
+  displayName?: string;
+  profilePictureUrl?: string;
 }; 

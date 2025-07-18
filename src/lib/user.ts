@@ -1,0 +1,24 @@
+import { prisma } from "./prisma";
+
+export const handleUserConnect = async (
+  fid: string,
+  displayName: string,
+  profilePictureUrl: string
+) => {
+  let user = await prisma.user.findUnique({
+    where: {
+      fid,
+    },
+  });
+
+  if (!user) {
+    user = await prisma.user.create({
+      data: {
+        fid,
+        displayName,
+        profilePictureUrl,
+      },
+    });
+  }
+  return user;
+};
