@@ -69,9 +69,10 @@ export const createRoom = async (
 };
 
 export const createRoomWithPlayers = async (
-  players: { userId: UserId; ws: ServerWebSocket<unknown> }[]
+  players: { userId: UserId; ws: ServerWebSocket<unknown> }[],
+  preRoomId?: string
 ) => {
-  const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
+  const roomId = preRoomId || `room-${Math.random().toString(36).slice(2, 8)}`;
   const playerObjs = players.map((p) => ({
     userId: p.userId,
     ws: p.ws,
@@ -116,31 +117,11 @@ export const joinRoom = async (
     send(ws, "error", { message: "Already in room" });
     return;
   }
-  const player = { userId, ws, score: 0 };
-  const players = [...data.players, player];
-  wsToUser.set(ws, userId);
-  await setUserRoom(userId, roomId);
-  const startTime = Date.now() + READY_TIME;
-  const gameState = {
-    startTime,
-    currentQuestion: generateQuestion(),
-    scores: Object.fromEntries(players.map((p: any) => [p.userId, 0])),
-  };
-  await setRoomData(roomId, {
-    players: players.map((p: any) => ({ userId: p.userId, score: p.score })),
-    gameState,
-  });
-  const playersWithWs = players
-    .map((p: any) => ({
-      ...p,
-      ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
-    }))
-    .filter((p: any) => p.ws);
-  broadcast(playersWithWs, "room-ready", {
-    players: players.map((p: any) => p.userId),
-    startTime,
-  });
-  setTimeout(() => startGame(roomId), READY_TIME);
+  const players = [
+    ...data.players.map((p: any) => ({ userId: p.userId, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })),
+    { userId, ws }
+  ];
+  await createRoomWithPlayers(players);
 };
 
 const startGame = async (roomId: RoomId) => {
