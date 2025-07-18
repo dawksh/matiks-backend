@@ -61,6 +61,7 @@ ws.onmessage = (event) => {
 
       case "game-start":
         console.log("Game started!");
+        console.log(message.question);
         handleQuestion(message.question);
         break;
 

@@ -1,9 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type {
-  Player,
   UserId,
   RoomId,
-  GameState,
   Question,
 } from "./types";
 import { send, broadcast } from "./websocket";
@@ -59,6 +57,26 @@ export const createRoom = async (ws: ServerWebSocket<unknown>, userId: UserId) =
   send(ws, "room-ready", { players: [userId] });
 };
 
+export const createRoomWithPlayers = async (players: { userId: UserId, ws: ServerWebSocket<unknown> }[]) => {
+  const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
+  const playerObjs = players.map(p => ({ userId: p.userId, ws: p.ws, score: 0 }));
+  playerObjs.forEach(p => wsToUser.set(p.ws, p.userId));
+  const startTime = Date.now() + 3000;
+  const gameState = {
+    startTime,
+    currentQuestion: generateQuestion(),
+    scores: Object.fromEntries(playerObjs.map(p => [p.userId, 0]))
+  };
+  await setRoomData(roomId, { players: playerObjs.map(p => ({ userId: p.userId, score: p.score })), gameState });
+  playerObjs.forEach(p => send(p.ws, "match-found", { roomId }));
+  playerObjs.forEach(p => send(p.ws, "create-room", { roomId }));
+  broadcast(playerObjs, "room-ready", {
+    players: playerObjs.map(p => p.userId),
+    startTime,
+  });
+  setTimeout(() => startGame(roomId), 3000);
+};
+
 export const joinRoom = async (
   ws: ServerWebSocket<unknown>,
   userId: UserId,
@@ -97,13 +115,18 @@ export const joinRoom = async (
 const startGame = async (roomId: RoomId) => {
   const data = await getRoomData(roomId);
   if (!data || !data.players || !data.gameState) return;
-  const players = data.players.map((p: any) => ({ ...p, ws: undefined }));
+  const players = data.players
+    .map((p: any) => {
+      const ws = [...wsToUser.entries()].find(([ws, userId]) => userId === p.userId)?.[0];
+      return ws ? { ...p, ws } : null;
+    })
+    .filter(Boolean);
   const nextQuestion = generateQuestion();
   const gameState = {
     ...data.gameState,
     currentQuestion: nextQuestion,
   };
-  await setRoomData(roomId, { players, gameState });
+  await setRoomData(roomId, { players: data.players, gameState });
   broadcast(players, "game-start", {
     question: nextQuestion,
     timeLeft: ROUND_TIME_LIMIT,
@@ -115,7 +138,7 @@ const startGame = async (roomId: RoomId) => {
     const playerScores = Object.entries(scores);
     const maxScore = Math.max(...playerScores.map(([_, score]) => Number(score)));
     const winners = playerScores.filter(([_, score]) => Number(score) === maxScore).map(([userId]) => userId);
-    broadcast(d.players, "round-end", {
+    broadcast(players, "round-end", {
       results: {
         winner: winners.length > 1 ? "tie" : winners[0],
         scores,
@@ -141,13 +164,15 @@ export const handleGameEvent = async (type: string, roomId: RoomId, data: any) =
     const question = d.gameState.currentQuestion;
     const isCorrect = question && question.answer === answer;
     if (isCorrect) d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
-    broadcast(d.players, "point-update", { userId, scores: d.gameState.scores });
-    broadcast(d.players, "answer-result", { userId, questionId: question.id, correct: isCorrect });
+    const playersWithWs = d.players.map((p: { userId: string; score: number }) => ({ ...p, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })).filter((p: any) => p.ws);
+    broadcast(playersWithWs, "point-update", { userId, scores: d.gameState.scores });
+    broadcast(playersWithWs, "answer-result", { userId, questionId: question.id, correct: isCorrect });
     const nextQuestion = generateQuestion();
     d.gameState.currentQuestion = nextQuestion;
     await setRoomData(roomId, { players: d.players, gameState: d.gameState });
-    broadcast(d.players, "next-question", { question: nextQuestion });
+    broadcast(playersWithWs, "next-question", { question: nextQuestion });
   } else {
-    broadcast(d.players, type, data);
+    const playersWithWs = d.players.map((p: { userId: string; score: number }) => ({ ...p, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })).filter((p: any) => p.ws);
+    broadcast(playersWithWs, type, data);
   }
 };

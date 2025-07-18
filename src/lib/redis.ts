@@ -1,14 +1,20 @@
-import { redis } from "bun";
+import { createClient } from "redis";
 
 const ttl = 300;
-
 const key = (roomId: string) => `room:${roomId}`;
 
-export const setRoomData = (roomId: string, data: unknown) =>
-  redis.set(key(roomId), JSON.stringify(data)).then(() => redis.expire(key(roomId), ttl));
+const client = createClient({ url: process.env.REDIS_URL });
+await client.connect();
 
-export const getRoomData = (roomId: string) =>
-  redis.get(key(roomId)).then((v) => (v ? JSON.parse(v) : null));
+export const setRoomData = async (roomId: string, data: unknown) => {
+  await client.set(key(roomId), JSON.stringify(data), { EX: ttl });
+};
 
-export const delRoomData = (roomId: string) =>
-  redis.del(key(roomId));
+export const getRoomData = async (roomId: string) => {
+  const v = await client.get(key(roomId));
+  return v ? JSON.parse(v) : null;
+};
+
+export const delRoomData = async (roomId: string) => {
+  await client.del(key(roomId));
+};
