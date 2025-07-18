@@ -1,4 +1,5 @@
-const ws = new WebSocket("wss://matiks-backend-production.up.railway.app/ws");
+const ws = new WebSocket("ws://localhost:3000/ws");
+// const ws = new WebSocket("wss://matiks-backend-production.up.railway.app/ws");
 const userId = "test-user-" + Math.random().toString(36).slice(2, 7);
 let currentQuestionId: string | null = null;
 let currentRoomId: string | null = null;

@@ -1,12 +1,15 @@
 import type { ServerWebSocket } from "bun";
-import type {
-  UserId,
-  RoomId,
-  Question,
-} from "./types";
+import type { UserId, RoomId, Question } from "./types";
 import { send, broadcast } from "./websocket";
 import { wsToUser } from "./connections";
-import { setRoomData, getRoomData, delRoomData, setUserRoom, getUserRoom, delUserRoom } from "./redis";
+import {
+  setRoomData,
+  getRoomData,
+  delRoomData,
+  setUserRoom,
+  getUserRoom,
+  delUserRoom,
+} from "./redis";
 import { prisma } from "./prisma";
 
 export const ROUND_TIME_LIMIT = 60000;
@@ -14,7 +17,10 @@ export const READY_TIME = 10000;
 
 export const generateQuestion = (): Question => {
   const opType = ["+", "-", "*", "/"][Math.floor(Math.random() * 4)];
-  let a = 0, b = 0, question = "", answer = 0;
+  let a = 0,
+    b = 0,
+    question = "",
+    answer = 0;
 
   if (opType === "+") {
     a = Math.floor(Math.random() * 150);
@@ -49,7 +55,10 @@ export const generateQuestion = (): Question => {
   return { id, question, answer };
 };
 
-export const createRoom = async (ws: ServerWebSocket<unknown>, userId: UserId) => {
+export const createRoom = async (
+  ws: ServerWebSocket<unknown>,
+  userId: UserId
+) => {
   const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
   const player = { userId, ws, score: 0 };
   await setRoomData(roomId, { players: [player], gameState: null });
@@ -59,22 +68,31 @@ export const createRoom = async (ws: ServerWebSocket<unknown>, userId: UserId) =
   send(ws, "room-ready", { players: [userId] });
 };
 
-export const createRoomWithPlayers = async (players: { userId: UserId, ws: ServerWebSocket<unknown> }[]) => {
+export const createRoomWithPlayers = async (
+  players: { userId: UserId; ws: ServerWebSocket<unknown> }[]
+) => {
   const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
-  const playerObjs = players.map(p => ({ userId: p.userId, ws: p.ws, score: 0 }));
-  await Promise.all(playerObjs.map(p => setUserRoom(p.userId, roomId)));
-  playerObjs.forEach(p => wsToUser.set(p.ws, p.userId));
+  const playerObjs = players.map((p) => ({
+    userId: p.userId,
+    ws: p.ws,
+    score: 0,
+  }));
+  await Promise.all(playerObjs.map((p) => setUserRoom(p.userId, roomId)));
+  playerObjs.forEach((p) => wsToUser.set(p.ws, p.userId));
   const startTime = Date.now() + READY_TIME;
   const gameState = {
     startTime,
     currentQuestion: generateQuestion(),
-    scores: Object.fromEntries(playerObjs.map(p => [p.userId, 0]))
+    scores: Object.fromEntries(playerObjs.map((p) => [p.userId, 0])),
   };
-  await setRoomData(roomId, { players: playerObjs.map(p => ({ userId: p.userId, score: p.score })), gameState });
-  playerObjs.forEach(p => send(p.ws, "match-found", { roomId }));
-  playerObjs.forEach(p => send(p.ws, "create-room", { roomId }));
+  await setRoomData(roomId, {
+    players: playerObjs.map((p) => ({ userId: p.userId, score: p.score })),
+    gameState,
+  });
+  playerObjs.forEach((p) => send(p.ws, "match-found", { roomId }));
+  playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
   broadcast(playerObjs, "room-ready", {
-    players: playerObjs.map(p => p.userId),
+    players: playerObjs.map((p) => p.userId),
     startTime,
   });
   setTimeout(() => startGame(roomId), READY_TIME);
@@ -108,7 +126,10 @@ export const joinRoom = async (
     currentQuestion: generateQuestion(),
     scores: Object.fromEntries(players.map((p: any) => [p.userId, 0])),
   };
-  await setRoomData(roomId, { players: players.map((p: any) => ({ userId: p.userId, score: p.score })), gameState });
+  await setRoomData(roomId, {
+    players: players.map((p: any) => ({ userId: p.userId, score: p.score })),
+    gameState,
+  });
   broadcast(players, "room-ready", {
     players: players.map((p: any) => p.userId),
     startTime,
@@ -121,7 +142,9 @@ const startGame = async (roomId: RoomId) => {
   if (!data || !data.players || !data.gameState) return;
   const players = data.players
     .map((p: any) => {
-      const ws = [...wsToUser.entries()].find(([ws, userId]) => userId === p.userId)?.[0];
+      const ws = [...wsToUser.entries()].find(
+        ([ws, userId]) => userId === p.userId
+      )?.[0];
       return ws ? { ...p, ws } : null;
     })
     .filter(Boolean);
@@ -140,8 +163,15 @@ const startGame = async (roomId: RoomId) => {
     if (!d || !d.players || !d.gameState) return;
     const scores = d.gameState.scores;
     const playerScores = Object.entries(scores);
-    const maxScore = Math.max(...playerScores.map(([_, score]) => Number(score)));
-    const winners = playerScores.filter(([_, score]) => Number(score) === maxScore).map(([userId]) => userId);
+    const maxScore = Math.max(
+      ...playerScores.map(([_, score]) => Number(score))
+    );
+    const winners = playerScores
+      .filter(([_, score]) => Number(score) === maxScore)
+      .map(([userId]) => userId);
+    const loser = playerScores.find(
+      ([_, score]) => Number(score) !== maxScore
+    )?.[0];
     broadcast(players, "round-end", {
       results: {
         winner: winners.length > 1 ? "tie" : winners[0],
@@ -151,24 +181,30 @@ const startGame = async (roomId: RoomId) => {
     });
     await delRoomData(roomId);
     const userIds = players.map((p: any) => p.userId);
-    const users = await prisma.user.findMany({ where: { fid: { in: userIds } } });
+    const users = await prisma.user.findMany({
+      where: { fid: { in: userIds } },
+    });
     if (users.length !== userIds.length) {
-      console.log(users, userIds)
-      return
-    }; // or handle error
-    if (!users.find(u => u.fid === winners[0])) return; // or handle error
+      console.log(users, userIds);
+      return;
+    } // or handle error
+    if (!users.find((u) => u.fid === winners[0])) return; // or handle error
     userIds.forEach(async (userId: string) => {
       await prisma.user.update({
         where: { fid: userId },
         data: {
-          points: {increment: scores[userId]},
-        }
-      })
-    })
+          points: { increment: scores[userId] },
+        },
+      });
+    });
     await prisma.game.create({
       data: {
         players: { connect: users.map((u: any) => ({ id: u.id })) },
-        winner: { connect: { id: users.find(u => u.fid === winners[0])?.id } },
+        winner: {
+          connect: { id: users.find((u) => u.fid === winners[0])?.id },
+        },
+        winnerPoints: maxScore,
+        loserPoints: loser ? scores[loser] : 0,
       },
     });
   }, ROUND_TIME_LIMIT);
@@ -195,14 +231,35 @@ export const handleUserLeave = async (ws: ServerWebSocket<unknown>) => {
   if (players.length === 1) {
     const winnerId = players[0].userId;
     const score = data.gameState?.scores?.[winnerId] || 0;
-    const users = await prisma.user.findMany({ where: { fid: { in: [winnerId, userId] } } });
-    const winner = users.find(u => u.fid === winnerId);
+    const users = await prisma.user.findMany({
+      where: { fid: { in: [winnerId, userId] } },
+    });
+    const winner = users.find((u) => u.fid === winnerId);
     if (winner) {
-      await prisma.user.update({ where: { fid: winnerId }, data: { points: { increment: score } } });
-      await prisma.game.create({ data: { players: { connect: users.map((u: any) => ({ id: u.id })) }, winner: { connect: { id: winner.id } } } });
+      await prisma.user.update({
+        where: { fid: winnerId },
+        data: { points: { increment: score } },
+      });
+      await prisma.game.create({
+        data: {
+          players: { connect: users.map((u: any) => ({ id: u.id })) },
+          winner: { connect: { id: winner.id } },
+          winnerPoints: score,
+          loserPoints: data.gameState?.scores?.[userId] || 0,
+        },
+      });
     }
-    const wsWinner = [...wsToUser.entries()].find(([w, uid]) => uid === winnerId)?.[0];
-    if (wsWinner) send(wsWinner, "round-end", { results: { winner: winnerId, scores: data.gameState?.scores || {}, reason: "opponent_left" } });
+    const wsWinner = [...wsToUser.entries()].find(
+      ([w, uid]) => uid === winnerId
+    )?.[0];
+    if (wsWinner)
+      send(wsWinner, "round-end", {
+        results: {
+          winner: winnerId,
+          scores: data.gameState?.scores || {},
+          reason: "opponent_left",
+        },
+      });
     await delRoomData(roomId);
     await delUserRoom(winnerId);
   } else {
@@ -210,7 +267,11 @@ export const handleUserLeave = async (ws: ServerWebSocket<unknown>) => {
   }
 };
 
-export const handleGameEvent = async (type: string, roomId: RoomId, data: any) => {
+export const handleGameEvent = async (
+  type: string,
+  roomId: RoomId,
+  data: any
+) => {
   const d = await getRoomData(roomId);
   if (!d || !d.players || !d.gameState) return;
   if (type === "submit-answer") {
@@ -223,15 +284,32 @@ export const handleGameEvent = async (type: string, roomId: RoomId, data: any) =
     d.players = d.players.map((p: any) =>
       p.userId === userId ? { ...p, score: d.gameState.scores[userId] } : p
     );
-    const playersWithWs = d.players.map((p: { userId: string; score: number }) => ({ ...p, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })).filter((p: any) => p.ws);
-    broadcast(playersWithWs, "point-update", { userId, scores: d.gameState.scores });
-    broadcast(playersWithWs, "answer-result", { userId, questionId: question.id, correct: isCorrect });
+    const playersWithWs = d.players
+      .map((p: { userId: string; score: number }) => ({
+        ...p,
+        ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
+      }))
+      .filter((p: any) => p.ws);
+    broadcast(playersWithWs, "point-update", {
+      userId,
+      scores: d.gameState.scores,
+    });
+    broadcast(playersWithWs, "answer-result", {
+      userId,
+      questionId: question.id,
+      correct: isCorrect,
+    });
     const nextQuestion = generateQuestion();
     d.gameState.currentQuestion = nextQuestion;
     await setRoomData(roomId, { players: d.players, gameState: d.gameState });
     broadcast(playersWithWs, "next-question", { question: nextQuestion });
   } else {
-    const playersWithWs = d.players.map((p: { userId: string; score: number }) => ({ ...p, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })).filter((p: any) => p.ws);
+    const playersWithWs = d.players
+      .map((p: { userId: string; score: number }) => ({
+        ...p,
+        ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
+      }))
+      .filter((p: any) => p.ws);
     broadcast(playersWithWs, type, data);
   }
 };

@@ -28,9 +28,11 @@ model User {
 }
 
 model Game {
-  id         String   @id @default(uuid())
-  players    User[]   @relation("GamePlayers")
-  winner     User     @relation("GameWinner", fields: [winnerId], references: [id])
-  winnerId   String
-  finishedAt DateTime @default(now())
+  id           String   @id @default(uuid())
+  players      User[]   @relation("GamePlayers")
+  winner       User     @relation("GameWinner", fields: [winnerId], references: [id])
+  winnerId     String
+  winnerPoints Int
+  loserPoints  Int
+  finishedAt   DateTime @default(now())
 }

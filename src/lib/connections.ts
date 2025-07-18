@@ -14,7 +14,6 @@ import { prisma } from "./prisma";
 export const wsToUser = new Map<ServerWebSocket<unknown>, UserId>();
 
 export const handleDisconnect = async (ws: ServerWebSocket<unknown>) => {
-  console.log(ws)
   const userId = wsToUser.get(ws);
   if (!userId) return;
   const queueIdx = queue.findIndex((p) => p.userId === userId);
@@ -26,7 +25,6 @@ export const handleDisconnect = async (ws: ServerWebSocket<unknown>) => {
     return;
   }
   const data = await getRoomData(roomId);
-  console.log(data);
   if (!data || !data.players) {
     wsToUser.delete(ws);
     await delUserRoom(userId);
@@ -65,6 +63,8 @@ export const handleDisconnect = async (ws: ServerWebSocket<unknown>) => {
         data: {
           players: { connect: users.map((u: any) => ({ id: u.id })) },
           winner: { connect: { id: winner.id } },
+          winnerPoints: score,
+          loserPoints: data.gameState?.scores?.[userId] || 0,
         },
       });
     }
