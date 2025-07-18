@@ -47,7 +47,6 @@ serve({
       let data: Message;
       try { 
         data = JSON.parse(msg.toString()); 
-        console.log("Received message:", data);
       } catch { 
         console.error("Invalid JSON message");
         return; 
