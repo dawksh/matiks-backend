@@ -6,11 +6,11 @@ let currentRoomId: string | null = null;
 console.log(`Starting test client with userId: ${userId}`);
 
 const calculateAnswer = (question: string): number => {
-  const parts = question.split("+");
-  if (parts.length !== 2) return 0;
-  const a = parseInt(parts[0]?.trim() ?? "0");
-  const b = parseInt(parts[1]?.trim() ?? "0");
-  return isNaN(a) || isNaN(b) ? 0 : a + b;
+  const [aRaw, op, bRaw] = question.split(/\s*([+\-*/])\s*/);
+  const a = parseInt(aRaw ?? "");
+  const b = parseInt(bRaw ?? "");
+  if (isNaN(a) || isNaN(b)) return 0;
+  return op === '+' ? a + b : op === '-' ? a - b : op === '*' ? a * b : op === '/' ? Math.floor(a / b) : 0;
 };
 
 const handleQuestion = (question: { id: string; question: string }) => {

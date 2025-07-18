@@ -7,6 +7,7 @@ import type {
 import { send, broadcast } from "./websocket";
 import { wsToUser } from "./connections";
 import { setRoomData, getRoomData, delRoomData } from "./redis";
+import { prisma } from "./prisma";
 
 export const ROUND_TIME_LIMIT = 30000;
 export const READY_TIME = 5000;
@@ -138,6 +139,12 @@ const startGame = async (roomId: RoomId) => {
     const playerScores = Object.entries(scores);
     const maxScore = Math.max(...playerScores.map(([_, score]) => Number(score)));
     const winners = playerScores.filter(([_, score]) => Number(score) === maxScore).map(([userId]) => userId);
+    await prisma.game.create({
+      data: {
+        players: { connect: players.map((p: any) => ({ id: p.userId })) },
+        winner: { connect: { id: winners[0] } },
+      },
+    });
     broadcast(players, "round-end", {
       results: {
         winner: winners.length > 1 ? "tie" : winners[0],
@@ -163,7 +170,12 @@ export const handleGameEvent = async (type: string, roomId: RoomId, data: any) =
     const { userId, answer } = data;
     const question = d.gameState.currentQuestion;
     const isCorrect = question && question.answer === answer;
-    if (isCorrect) d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
+    if (!isCorrect) return;
+
+    d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
+    d.players = d.players.map((p: any) =>
+      p.userId === userId ? { ...p, score: d.gameState.scores[userId] } : p
+    );
     const playersWithWs = d.players.map((p: { userId: string; score: number }) => ({ ...p, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })).filter((p: any) => p.ws);
     broadcast(playersWithWs, "point-update", { userId, scores: d.gameState.scores });
     broadcast(playersWithWs, "answer-result", { userId, questionId: question.id, correct: isCorrect });
