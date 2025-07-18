@@ -6,7 +6,7 @@ import type {
 } from "./types";
 import { send, broadcast } from "./websocket";
 import { wsToUser } from "./connections";
-import { setRoomData, getRoomData, delRoomData } from "./redis";
+import { setRoomData, getRoomData, delRoomData, setUserRoom, getUserRoom, delUserRoom } from "./redis";
 import { prisma } from "./prisma";
 
 export const ROUND_TIME_LIMIT = 30000;
@@ -53,6 +53,7 @@ export const createRoom = async (ws: ServerWebSocket<unknown>, userId: UserId) =
   const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
   const player = { userId, ws, score: 0 };
   await setRoomData(roomId, { players: [player], gameState: null });
+  await setUserRoom(userId, roomId);
   wsToUser.set(ws, userId);
   send(ws, "create-room", { roomId });
   send(ws, "room-ready", { players: [userId] });
@@ -61,6 +62,7 @@ export const createRoom = async (ws: ServerWebSocket<unknown>, userId: UserId) =
 export const createRoomWithPlayers = async (players: { userId: UserId, ws: ServerWebSocket<unknown> }[]) => {
   const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
   const playerObjs = players.map(p => ({ userId: p.userId, ws: p.ws, score: 0 }));
+  await Promise.all(playerObjs.map(p => setUserRoom(p.userId, roomId)));
   playerObjs.forEach(p => wsToUser.set(p.ws, p.userId));
   const startTime = Date.now() + 3000;
   const gameState = {
@@ -99,6 +101,7 @@ export const joinRoom = async (
   const player = { userId, ws, score: 0 };
   const players = [...data.players, player];
   wsToUser.set(ws, userId);
+  await setUserRoom(userId, roomId);
   const startTime = Date.now() + 3000;
   const gameState = {
     startTime,
@@ -174,8 +177,37 @@ const startGame = async (roomId: RoomId) => {
 export const handleUserLeave = async (ws: ServerWebSocket<unknown>) => {
   const userId = wsToUser.get(ws);
   if (!userId) return;
-  // Redis does not support wildcard get, so this needs a list of roomIds from somewhere. For now, skip loop.
+  const roomId = await getUserRoom(userId);
+  if (!roomId) {
+    wsToUser.delete(ws);
+    await delUserRoom(userId);
+    return;
+  }
+  const data = await getRoomData(roomId);
+  if (!data || !data.players) {
+    wsToUser.delete(ws);
+    await delUserRoom(userId);
+    return;
+  }
+  const players = data.players.filter((p: any) => p.userId !== userId);
   wsToUser.delete(ws);
+  await delUserRoom(userId);
+  if (players.length === 1) {
+    const winnerId = players[0].userId;
+    const score = data.gameState?.scores?.[winnerId] || 0;
+    const users = await prisma.user.findMany({ where: { fid: { in: [winnerId, userId] } } });
+    const winner = users.find(u => u.fid === winnerId);
+    if (winner) {
+      await prisma.user.update({ where: { fid: winnerId }, data: { points: { increment: score } } });
+      await prisma.game.create({ data: { players: { connect: users.map((u: any) => ({ id: u.id })) }, winner: { connect: { id: winner.id } } } });
+    }
+    const wsWinner = [...wsToUser.entries()].find(([w, uid]) => uid === winnerId)?.[0];
+    if (wsWinner) send(wsWinner, "round-end", { results: { winner: winnerId, scores: data.gameState?.scores || {}, reason: "opponent_left" } });
+    await delRoomData(roomId);
+    await delUserRoom(winnerId);
+  } else {
+    await setRoomData(roomId, { ...data, players });
+  }
 };
 
 export const handleGameEvent = async (type: string, roomId: RoomId, data: any) => {

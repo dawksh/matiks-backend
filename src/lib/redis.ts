@@ -18,3 +18,15 @@ export const getRoomData = async (roomId: string) => {
 export const delRoomData = async (roomId: string) => {
   await client.del(key(roomId));
 };
+
+export const setUserRoom = async (userId: string, roomId: string) => {
+  await client.set(`user-room:${userId}`, roomId, { EX: ttl });
+};
+
+export const getUserRoom = async (userId: string) => {
+  return client.get(`user-room:${userId}`);
+};
+
+export const delUserRoom = async (userId: string) => {
+  await client.del(`user-room:${userId}`);
+};
