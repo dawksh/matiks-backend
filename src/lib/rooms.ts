@@ -130,7 +130,13 @@ export const joinRoom = async (
     players: players.map((p: any) => ({ userId: p.userId, score: p.score })),
     gameState,
   });
-  broadcast(players, "room-ready", {
+  const playersWithWs = players
+    .map((p: any) => ({
+      ...p,
+      ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
+    }))
+    .filter((p: any) => p.ws);
+  broadcast(playersWithWs, "room-ready", {
     players: players.map((p: any) => p.userId),
     startTime,
   });
