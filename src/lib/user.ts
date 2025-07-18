@@ -3,7 +3,8 @@ import { prisma } from "./prisma";
 export const handleUserConnect = async (
   fid: string,
   displayName: string,
-  profilePictureUrl: string
+  profilePictureUrl: string,
+  username: string
 ) => {
   let user = await prisma.user.findUnique({
     where: {
@@ -17,6 +18,7 @@ export const handleUserConnect = async (
         fid,
         displayName,
         profilePictureUrl,
+        username,
       },
     });
   }

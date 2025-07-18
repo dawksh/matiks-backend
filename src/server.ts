@@ -46,7 +46,7 @@ serve({
           if (data.roomId) handleGameEvent(data.type, data.roomId, data);
           break;
         case "register-user":
-            handleUserConnect(data.fid!, data.displayName!, data.profilePictureUrl!);
+            handleUserConnect(data.fid!, data.displayName!, data.profilePictureUrl!, data.username!);
       }
     },
     close(ws) {

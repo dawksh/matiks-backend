@@ -33,4 +33,5 @@ export type Message = {
   fid?: string;
   displayName?: string;
   profilePictureUrl?: string;
+  username?: string;
 }; 
