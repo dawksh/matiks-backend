@@ -65,7 +65,7 @@ export const createRoom = async (
   await setUserRoom(userId, roomId);
   wsToUser.set(ws, userId);
   send(ws, "create-room", { roomId });
-  send(ws, "room-ready", { players: [userId] });
+  // send(ws, "room-ready", { players: [userId] });
 };
 
 export const createRoomWithPlayers = async (
