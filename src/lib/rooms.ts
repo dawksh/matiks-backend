@@ -10,7 +10,7 @@ import { setRoomData, getRoomData, delRoomData, setUserRoom, getUserRoom, delUse
 import { prisma } from "./prisma";
 
 export const ROUND_TIME_LIMIT = 30000;
-export const READY_TIME = 5000;
+export const READY_TIME = 10000;
 
 export const generateQuestion = (): Question => {
   const opType = ["+", "-", "*", "/"][Math.floor(Math.random() * 4)];

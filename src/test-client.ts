@@ -1,4 +1,4 @@
-const ws = new WebSocket("ws://localhost:3000");
+const ws = new WebSocket("ws://localhost:3000/ws");
 const userId = "test-user-" + Math.random().toString(36).slice(2, 7);
 let currentQuestionId: string | null = null;
 let currentRoomId: string | null = null;

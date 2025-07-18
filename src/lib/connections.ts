@@ -14,6 +14,7 @@ import { prisma } from "./prisma";
 export const wsToUser = new Map<ServerWebSocket<unknown>, UserId>();
 
 export const handleDisconnect = async (ws: ServerWebSocket<unknown>) => {
+  console.log(ws)
   const userId = wsToUser.get(ws);
   if (!userId) return;
   const queueIdx = queue.findIndex((p) => p.userId === userId);

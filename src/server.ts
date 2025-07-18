@@ -4,6 +4,32 @@ import { handleMatchmaking } from "./lib/matchmaking";
 import { createRoom, joinRoom, handleGameEvent } from "./lib/rooms";
 import { handleDisconnect } from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
+import Elysia, { t } from "elysia";
+import { prisma } from "./lib/prisma";
+
+const app = new Elysia();
+app.get("/leaderboard", async ({query}: {query: {limit: number, page: number}}) => {
+    const users = await prisma.user.findMany({
+        orderBy: {
+            points: "desc",
+        },
+        take: query.limit,
+        skip: (query.page -1 ) * query.limit,
+    });
+    return {
+        users,
+        total: users.length,
+        page: query.page,
+    };
+}, {
+    query: t.Object({
+        limit: t.Number({default: 10}),
+        page: t.Number({default: 1}),
+    }),
+});
+app.listen(8080, () => {
+    console.log("App Working on port 8080")
+});
 
 serve({
   port: 3000,
