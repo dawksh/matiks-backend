@@ -78,25 +78,40 @@ export const createRoomWithPlayers = async (
     ws: p.ws,
     score: 0,
   }));
-  await Promise.all(playerObjs.map((p) => setUserRoom(p.userId, roomId)));
-  playerObjs.forEach((p) => wsToUser.set(p.ws, p.userId));
-  const startTime = Date.now() + READY_TIME;
-  const gameState = {
-    startTime,
-    currentQuestion: generateQuestion(),
-    scores: Object.fromEntries(playerObjs.map((p) => [p.userId, 0])),
-  };
-  await setRoomData(roomId, {
-    players: playerObjs.map((p) => ({ userId: p.userId, score: p.score })),
-    gameState,
-  });
-  playerObjs.forEach((p) => send(p.ws, "match-found", { roomId }));
-  playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
-  broadcast(playerObjs, "room-ready", {
-    players: playerObjs.map((p) => p.userId),
-    startTime,
-  });
-  setTimeout(() => startGame(roomId), READY_TIME);
+  
+  const validPlayers = playerObjs.filter((p) => p.ws.readyState === 1);
+  if (validPlayers.length !== playerObjs.length) {
+    throw new Error("Some players have invalid WebSocket connections");
+  }
+  
+  try {
+    await Promise.all(playerObjs.map((p) => setUserRoom(p.userId, roomId)));
+    playerObjs.forEach((p) => wsToUser.set(p.ws, p.userId));
+    
+    const startTime = Date.now() + READY_TIME;
+    const gameState = {
+      startTime,
+      currentQuestion: generateQuestion(),
+      scores: Object.fromEntries(playerObjs.map((p) => [p.userId, 0])),
+    };
+    
+    await setRoomData(roomId, {
+      players: playerObjs.map((p) => ({ userId: p.userId, score: p.score })),
+      gameState,
+    });
+    
+    playerObjs.forEach((p) => send(p.ws, "match-found", { roomId }));
+    playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
+    broadcast(playerObjs, "room-ready", {
+      players: playerObjs.map((p) => p.userId),
+      startTime,
+    });
+    
+    setTimeout(() => startGame(roomId), READY_TIME);
+  } catch (error) {
+    console.error("Failed to create room with players:", error);
+    throw error;
+  }
 };
 
 export const joinRoom = async (
@@ -125,76 +140,109 @@ export const joinRoom = async (
 };
 
 const startGame = async (roomId: RoomId) => {
-  const data = await getRoomData(roomId);
-  if (!data || !data.players || !data.gameState) return;
-  const players = data.players
-    .map((p: any) => {
-      const ws = [...wsToUser.entries()].find(
-        ([ws, userId]) => userId === p.userId
-      )?.[0];
-      return ws ? { ...p, ws } : null;
-    })
-    .filter(Boolean);
-  const nextQuestion = generateQuestion();
-  const gameState = {
-    ...data.gameState,
-    currentQuestion: nextQuestion,
-  };
-  await setRoomData(roomId, { players: data.players, gameState });
-  broadcast(players, "game-start", {
-    question: nextQuestion,
-    timeLeft: ROUND_TIME_LIMIT,
-  });
-  setTimeout(async () => {
-    const d = await getRoomData(roomId);
-    if (!d || !d.players || !d.gameState) return;
-    const scores = d.gameState.scores;
-    const playerScores = Object.entries(scores);
-    const maxScore = Math.max(
-      ...playerScores.map(([_, score]) => Number(score))
-    );
-    const winners = playerScores
-      .filter(([_, score]) => Number(score) === maxScore)
-      .map(([userId]) => userId);
-    const loser = playerScores.find(
-      ([_, score]) => Number(score) !== maxScore
-    )?.[0];
-    broadcast(players, "round-end", {
-      results: {
-        winner: winners.length > 1 ? "tie" : winners[0],
-        scores,
-        reason: "time_limit",
-      },
-    });
-    await delRoomData(roomId);
-    const userIds = players.map((p: any) => p.userId);
-    const users = await prisma.user.findMany({
-      where: { fid: { in: userIds } },
-    });
-    if (users.length !== userIds.length) {
-      console.log(users, userIds);
+  try {
+    const data = await getRoomData(roomId);
+    if (!data || !data.players || !data.gameState) {
+      console.log("Room data not found or invalid for game start:", roomId);
       return;
-    } // or handle error
-    if (!users.find((u) => u.fid === winners[0])) return; // or handle error
-    userIds.forEach(async (userId: string) => {
-      await prisma.user.update({
-        where: { fid: userId },
-        data: {
-          points: { increment: scores[userId] },
-        },
-      });
+    }
+    
+    const players = data.players
+      .map((p: any) => {
+        const ws = [...wsToUser.entries()].find(
+          ([ws, userId]) => userId === p.userId
+        )?.[0];
+        return ws && ws.readyState === 1 ? { ...p, ws } : null;
+      })
+      .filter(Boolean);
+    
+    if (players.length < 2) {
+      console.log("Not enough valid players to start game:", roomId);
+      await delRoomData(roomId);
+      return;
+    }
+    
+    const nextQuestion = generateQuestion();
+    const gameState = {
+      ...data.gameState,
+      currentQuestion: nextQuestion,
+    };
+    
+    await setRoomData(roomId, { players: data.players, gameState });
+    broadcast(players, "game-start", {
+      question: nextQuestion,
+      timeLeft: ROUND_TIME_LIMIT,
     });
-    await prisma.game.create({
-      data: {
-        players: { connect: users.map((u: any) => ({ id: u.id })) },
-        winner: {
-          connect: { id: users.find((u) => u.fid === winners[0])?.id },
-        },
-        winnerPoints: maxScore,
-        loserPoints: loser ? scores[loser] : 0,
-      },
-    });
-  }, ROUND_TIME_LIMIT);
+    
+    setTimeout(async () => {
+      try {
+        const d = await getRoomData(roomId);
+        if (!d || !d.players || !d.gameState) return;
+        
+        const scores = d.gameState.scores;
+        const playerScores = Object.entries(scores);
+        const maxScore = Math.max(
+          ...playerScores.map(([_, score]) => Number(score))
+        );
+        const winners = playerScores
+          .filter(([_, score]) => Number(score) === maxScore)
+          .map(([userId]) => userId);
+        const loser = playerScores.find(
+          ([_, score]) => Number(score) !== maxScore
+        )?.[0];
+        
+        const validPlayers = players.filter((p: any) => p.ws.readyState === 1);
+        broadcast(validPlayers, "round-end", {
+          results: {
+            winner: winners.length > 1 ? "tie" : winners[0],
+            scores,
+            reason: "time_limit",
+          },
+        });
+        
+        await delRoomData(roomId);
+        const userIds = players.map((p: any) => p.userId);
+        
+        const users = await prisma.user.findMany({
+          where: { fid: { in: userIds } },
+        });
+        
+        if (users.length !== userIds.length) {
+          console.log("User data mismatch:", users, userIds);
+          return;
+        }
+        
+        if (!users.find((u) => u.fid === winners[0])) {
+          console.log("Winner not found in database:", winners[0]);
+          return;
+        }
+        
+        await Promise.all(userIds.map(async (userId: string) => {
+          await prisma.user.update({
+            where: { fid: userId },
+            data: {
+              points: { increment: scores[userId] },
+            },
+          });
+        }));
+        
+        await prisma.game.create({
+          data: {
+            players: { connect: users.map((u: any) => ({ id: u.id })) },
+            winner: {
+              connect: { id: users.find((u) => u.fid === winners[0])?.id },
+            },
+            winnerPoints: maxScore,
+            loserPoints: loser ? scores[loser] : 0,
+          },
+        });
+      } catch (error) {
+        console.error("Error in round end:", error);
+      }
+    }, ROUND_TIME_LIMIT);
+  } catch (error) {
+    console.error("Error starting game:", error);
+  }
 };
 
 export const handleGameEvent = async (
@@ -202,44 +250,52 @@ export const handleGameEvent = async (
   roomId: RoomId,
   data: any
 ) => {
-  const d = await getRoomData(roomId);
-  if (!d || !d.players || !d.gameState) return;
-  if (type === "submit-answer") {
-    const { userId, answer } = data;
-    const question = d.gameState.currentQuestion;
-    const isCorrect = question && question.answer === answer;
-    if (!isCorrect) return;
-
-    d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
-    d.players = d.players.map((p: any) =>
-      p.userId === userId ? { ...p, score: d.gameState.scores[userId] } : p
-    );
+  try {
+    const d = await getRoomData(roomId);
+    if (!d || !d.players || !d.gameState) {
+      console.log("Invalid room data for game event:", roomId);
+      return;
+    }
+    
     const playersWithWs = d.players
       .map((p: { userId: string; score: number }) => ({
         ...p,
         ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
       }))
-      .filter((p: any) => p.ws);
-    broadcast(playersWithWs, "point-update", {
-      userId,
-      scores: d.gameState.scores,
-    });
-    broadcast(playersWithWs, "answer-result", {
-      userId,
-      questionId: question.id,
-      correct: isCorrect,
-    });
-    const nextQuestion = generateQuestion();
-    d.gameState.currentQuestion = nextQuestion;
-    await setRoomData(roomId, { players: d.players, gameState: d.gameState });
-    broadcast(playersWithWs, "next-question", { question: nextQuestion });
-  } else {
-    const playersWithWs = d.players
-      .map((p: { userId: string; score: number }) => ({
-        ...p,
-        ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
-      }))
-      .filter((p: any) => p.ws);
-    broadcast(playersWithWs, type, data);
+      .filter((p: any) => p.ws && p.ws.readyState === 1);
+    
+    if (type === "submit-answer") {
+      const { userId, answer } = data;
+      const question = d.gameState.currentQuestion;
+      const isCorrect = question && question.answer === answer;
+      
+      if (!isCorrect) return;
+      
+      d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
+      d.players = d.players.map((p: any) =>
+        p.userId === userId ? { ...p, score: d.gameState.scores[userId] } : p
+      );
+      
+      broadcast(playersWithWs, "point-update", {
+        userId,
+        scores: d.gameState.scores,
+      });
+      
+      broadcast(playersWithWs, "answer-result", {
+        userId,
+        questionId: question.id,
+        correct: isCorrect,
+      });
+      
+      const nextQuestion = generateQuestion();
+      d.gameState.currentQuestion = nextQuestion;
+      
+      await setRoomData(roomId, { players: d.players, gameState: d.gameState });
+      broadcast(playersWithWs, "next-question", { question: nextQuestion });
+    } else {
+      broadcast(playersWithWs, type, data);
+    }
+  } catch (error) {
+    console.error("Error handling game event:", error);
   }
 };

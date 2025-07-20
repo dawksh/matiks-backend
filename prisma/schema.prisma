@@ -25,6 +25,7 @@ model User {
   points            Int      @default(0)
   gamesPlayed       Game[]   @relation("GamePlayers")
   gamesWon          Game[]   @relation("GameWinner")
+  notificationToken String?
 }
 
 model Game {

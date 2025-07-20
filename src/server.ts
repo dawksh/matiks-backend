@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import type { Message } from "./lib/types";
-import { handleMatchmaking } from "./lib/matchmaking";
+import { handleMatchmaking, startPeriodicCleanup } from "./lib/matchmaking";
 import { createRoom, joinRoom, handleGameEvent } from "./lib/rooms";
 import { handleDisconnect } from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
@@ -30,6 +30,8 @@ app.get("/leaderboard", async ({query}: {query: {limit: number, page: number}}) 
 app.listen(8080, () => {
     console.log("App Working on port 8080")
 });
+
+startPeriodicCleanup();
 
 serve({
   port: 3000,
