@@ -101,7 +101,9 @@ export const createRoomWithPlayers = async (
     });
     
     playerObjs.forEach((p) => send(p.ws, "match-found", { roomId }));
-    playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
+    if(!preRoomId) {
+      playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
+    }
     broadcast(playerObjs, "room-ready", {
       players: playerObjs.map((p) => p.userId),
       startTime,
@@ -136,7 +138,7 @@ export const joinRoom = async (
     ...data.players.map((p: any) => ({ userId: p.userId, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })),
     { userId, ws }
   ];
-  await createRoomWithPlayers(players);
+  await createRoomWithPlayers(players, roomId);
 };
 
 const startGame = async (roomId: RoomId) => {
@@ -162,15 +164,15 @@ const startGame = async (roomId: RoomId) => {
       return;
     }
     
-    const nextQuestion = generateQuestion();
+    const initQuestion = generateQuestion();
     const gameState = {
       ...data.gameState,
-      currentQuestion: nextQuestion,
+      currentQuestion: initQuestion,
     };
     
     await setRoomData(roomId, { players: data.players, gameState });
     broadcast(players, "game-start", {
-      question: nextQuestion,
+      question: initQuestion,
       timeLeft: ROUND_TIME_LIMIT,
     });
     
