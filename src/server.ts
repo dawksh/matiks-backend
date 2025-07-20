@@ -2,8 +2,10 @@ import { serve } from "bun";
 import type { Message } from "./lib/types";
 import { handleMatchmaking, startPeriodicCleanup } from "./lib/matchmaking";
 import { createRoom, joinRoom, handleGameEvent } from "./lib/rooms";
-import { handleDisconnect } from "./lib/connections";
+import { handleDisconnect, trackConnection, updateHeartbeat, isConnectionStale } from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
+import { sendHeartbeat } from "./lib/websocket";
+import { startConnectionMonitoring } from "./lib/connection-stability";
 import Elysia, { t } from "elysia";
 import { prisma } from "./lib/prisma";
 
@@ -32,6 +34,7 @@ app.listen(8080, () => {
 });
 
 startPeriodicCleanup();
+startConnectionMonitoring();
 
 serve({
   port: 3000,
@@ -54,15 +57,26 @@ serve({
         return; 
       }
       
+      // Handle heartbeat responses
+      if (data.type === "pong") {
+        updateHeartbeat(ws);
+        return;
+      }
+      
+      // Track connection for user-related messages
+      if (data.userId && data.type !== "ping" && data.type !== "pong") {
+        trackConnection(ws, data.userId);
+      }
+      
       switch (data.type) {
         case "join-matchmaking":
-          handleMatchmaking(ws, data.userId);
+          if (data.userId) handleMatchmaking(ws, data.userId);
           break;
         case "create-room":
-          createRoom(ws, data.userId);
+          if (data.userId) createRoom(ws, data.userId);
           break;
         case "join-room":
-          if (data.roomId) joinRoom(ws, data.userId, data.roomId);
+          if (data.roomId && data.userId) joinRoom(ws, data.userId, data.roomId);
           break;
         case "submit-answer":
           if (data.roomId && data.questionId !== undefined && data.answer !== undefined) {
@@ -74,6 +88,11 @@ serve({
           break;
         case "register-user":
             handleUserConnect(data.fid!, data.displayName!, data.profilePictureUrl!, data.username!);
+          break;
+        case "ping":
+          // Respond to client pings
+          ws.send(JSON.stringify({ type: "pong", timestamp: data.timestamp }));
+          break;
       }
     },
     close(ws) {

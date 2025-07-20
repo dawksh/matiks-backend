@@ -25,7 +25,7 @@ export type GameState = {
 
 export type Message = { 
   type: string; 
-  userId: UserId; 
+  userId?: UserId; 
   roomId?: RoomId; 
   questionId?: QuestionId;
   answer?: number; 
@@ -34,4 +34,5 @@ export type Message = {
   displayName?: string;
   profilePictureUrl?: string;
   username?: string;
+  timestamp?: number;
 }; 

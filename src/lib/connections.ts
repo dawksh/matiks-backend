@@ -8,17 +8,51 @@ import {
   getUserRoom,
   delUserRoom,
 } from "./redis";
-import { send } from "./websocket";
+import { send, validateConnection } from "./websocket";
 import { prisma } from "./prisma";
 
 export const wsToUser = new Map<ServerWebSocket<unknown>, UserId>();
+export const userToWs = new Map<UserId, ServerWebSocket<unknown>>();
+export const connectionTimestamps = new Map<ServerWebSocket<unknown>, number>();
+export const lastHeartbeat = new Map<ServerWebSocket<unknown>, number>();
+
+export const trackConnection = (ws: ServerWebSocket<unknown>, userId: UserId) => {
+  wsToUser.set(ws, userId);
+  userToWs.set(userId, ws);
+  connectionTimestamps.set(ws, Date.now());
+  lastHeartbeat.set(ws, Date.now());
+};
+
+export const untrackConnection = (ws: ServerWebSocket<unknown>) => {
+  const userId = wsToUser.get(ws);
+  if (userId) {
+    userToWs.delete(userId);
+  }
+  wsToUser.delete(ws);
+  connectionTimestamps.delete(ws);
+  lastHeartbeat.delete(ws);
+};
+
+export const getValidWebSocket = (userId: UserId): ServerWebSocket<unknown> | null => {
+  const ws = userToWs.get(userId);
+  return ws && validateConnection(ws) ? ws : null;
+};
+
+export const updateHeartbeat = (ws: ServerWebSocket<unknown>) => {
+  lastHeartbeat.set(ws, Date.now());
+};
+
+export const isConnectionStale = (ws: ServerWebSocket<unknown>, timeoutMs: number = 30000): boolean => {
+  const lastBeat = lastHeartbeat.get(ws);
+  return lastBeat ? (Date.now() - lastBeat) > timeoutMs : true;
+};
 
 export const handleDisconnect = async (ws: ServerWebSocket<unknown>) => {
   const userId = wsToUser.get(ws);
   if (!userId) return;
   
   removeFromQueue(userId);
-  wsToUser.delete(ws);
+  untrackConnection(ws);
   
   try {
     const roomId = await getUserRoom(userId);

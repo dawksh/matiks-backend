@@ -1,7 +1,7 @@
 import type { ServerWebSocket } from "bun";
 import type { UserId, RoomId, Question } from "./types";
 import { send, broadcast } from "./websocket";
-import { wsToUser } from "./connections";
+import { wsToUser, trackConnection, getValidWebSocket } from "./connections";
 import {
   setRoomData,
   getRoomData,
@@ -63,9 +63,9 @@ export const createRoom = async (
   const player = { userId, ws, score: 0 };
   await setRoomData(roomId, { players: [player], gameState: null });
   await setUserRoom(userId, roomId);
-  wsToUser.set(ws, userId);
+  trackConnection(ws, userId);
   send(ws, "create-room", { roomId });
-  // send(ws, "room-ready", { players: [userId] });
+  send(ws, "waiting-for-player", { roomId });
 };
 
 export const createRoomWithPlayers = async (
@@ -86,7 +86,7 @@ export const createRoomWithPlayers = async (
   
   try {
     await Promise.all(playerObjs.map((p) => setUserRoom(p.userId, roomId)));
-    playerObjs.forEach((p) => wsToUser.set(p.ws, p.userId));
+    playerObjs.forEach((p) => trackConnection(p.ws, p.userId));
     
     const startTime = Date.now() + READY_TIME;
     const gameState = {
