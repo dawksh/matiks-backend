@@ -59,7 +59,7 @@ export const createRoom = async (
   ws: ServerWebSocket<unknown>,
   userId: UserId
 ) => {
-  const roomId = `room-${Math.random().toString(36).slice(2, 8)}`;
+  const roomId = `room-${userId}`;
   const player = { userId, ws, score: 0 };
   await setRoomData(roomId, { players: [player], gameState: null });
   await setUserRoom(userId, roomId);
