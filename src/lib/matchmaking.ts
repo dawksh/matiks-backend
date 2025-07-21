@@ -1,51 +1,50 @@
 import type { ServerWebSocket } from "bun";
-import type { Player, UserId, RoomId } from "./types";
-import { send, broadcast } from "./websocket";
-import { READY_TIME, ROUND_TIME_LIMIT, createRoomWithPlayers } from "./rooms";
+import type { Player, UserId } from "./types";
+import { send } from "./websocket";
+import { createRoomWithPlayers } from "./rooms";
 import { wsToUser } from "./connections";
-import { setRoomData, getRoomData, delRoomData } from "./redis";
+import { enqueuePlayer, dequeuePlayers, removePlayerFromQueue, getAllQueuedPlayers } from "./redis";
 
-export const queue: Player[] = [];
-
-export const handleMatchmaking = (
+export const handleMatchmaking = async (
   ws: ServerWebSocket<unknown>,
   userId: UserId
 ) => {
-  if (queue.some((p) => p.userId === userId)) {
+  const all = await getAllQueuedPlayers();
+  if (all.some((p) => p.userId === userId)) {
     send(ws, "error", { message: "Already in queue" });
     return;
   }
-  
   if (ws.readyState !== 1) {
     send(ws, "error", { message: "WebSocket not ready" });
     return;
   }
-  
-  const player: Player = { userId, ws, score: 0 };
-  queue.push(player);
+  await enqueuePlayer(userId, 0);
   wsToUser.set(ws, userId);
-  send(ws, "queue-joined", { position: queue.length });
-  
-  if (queue.length >= 2) {
+  const position = (await getAllQueuedPlayers()).findIndex((p) => p.userId === userId) + 1;
+  send(ws, "queue-joined", { position });
+  if ((await getAllQueuedPlayers()).length >= 2) {
     createMatch();
   }
 };
 
-export const removeFromQueue = (userId: UserId) => {
-  const index = queue.findIndex((p) => p.userId === userId);
-  if (index !== -1) {
-    queue.splice(index, 1);
-  }
+export const removeFromQueue = async (userId: UserId) => {
+  await removePlayerFromQueue(userId);
 };
 
-export const cleanupQueue = () => {
-  const validPlayers = queue.filter((p) => p.ws.readyState === 1);
-  const removedCount = queue.length - validPlayers.length;
-  if (removedCount > 0) {
-    console.log(`Cleaned up ${removedCount} stale connections from queue`);
+export const cleanupQueue = async () => {
+  // Remove players whose ws is not open
+  const all = await getAllQueuedPlayers();
+  let removed = 0;
+  for (const p of all) {
+    const ws = [...wsToUser.entries()].find(([, id]) => id === p.userId)?.[0];
+    if (!ws || ws.readyState !== 1) {
+      await removePlayerFromQueue(p.userId);
+      removed++;
+    }
   }
-  queue.length = 0;
-  queue.push(...validPlayers);
+  if (removed > 0) {
+    console.log(`Cleaned up ${removed} stale connections from queue`);
+  }
 };
 
 export const startPeriodicCleanup = () => {
@@ -55,33 +54,36 @@ export const startPeriodicCleanup = () => {
 };
 
 const createMatch = async () => {
-  cleanupQueue();
-  
-  if (queue.length < 2) return;
-  
-  const [p1, p2] = [queue.shift(), queue.shift()];
-  if (!p1 || !p2) return;
-  
-  if (p1.ws.readyState !== 1 || p2.ws.readyState !== 1) {
-    if (p1.ws.readyState === 1) queue.unshift(p1);
-    if (p2.ws.readyState === 1) queue.unshift(p2);
+  await cleanupQueue();
+  const all = await getAllQueuedPlayers();
+  if (all.length < 2) return;
+  const players = await dequeuePlayers(2);
+  if (players.length < 2) return;
+  const [p1, p2] = players;
+  const ws1 = [...wsToUser.entries()].find(([, id]) => id === p1.userId)?.[0];
+  const ws2 = [...wsToUser.entries()].find(([, id]) => id === p2.userId)?.[0];
+  if (!ws1 || ws1.readyState !== 1) {
+    if (ws2 && ws2.readyState === 1) await enqueuePlayer(p2.userId, p2.score);
     return;
   }
-  
+  if (!ws2 || ws2.readyState !== 1) {
+    if (ws1 && ws1.readyState === 1) await enqueuePlayer(p1.userId, p1.score);
+    return;
+  }
   try {
     await createRoomWithPlayers([
-      { userId: p1.userId, ws: p1.ws },
-      { userId: p2.userId, ws: p2.ws },
+      { userId: p1.userId, ws: ws1 },
+      { userId: p2.userId, ws: ws2 },
     ]);
   } catch (error) {
     console.error("Failed to create match:", error);
-    if (p1.ws.readyState === 1) {
-      queue.unshift(p1);
-      send(p1.ws, "error", { message: "Failed to create match" });
+    if (ws1 && ws1.readyState === 1) {
+      await enqueuePlayer(p1.userId, p1.score);
+      send(ws1, "error", { message: "Failed to create match" });
     }
-    if (p2.ws.readyState === 1) {
-      queue.unshift(p2);
-      send(p2.ws, "error", { message: "Failed to create match" });
+    if (ws2 && ws2.readyState === 1) {
+      await enqueuePlayer(p2.userId, p2.score);
+      send(ws2, "error", { message: "Failed to create match" });
     }
   }
 };
