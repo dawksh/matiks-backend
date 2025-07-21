@@ -30,3 +30,12 @@ export const getUserRoom = async (userId: string) => {
 export const delUserRoom = async (userId: string) => {
   await client.del(`user-room:${userId}`);
 };
+
+export const setCache = async (key: string, data: unknown, ttlOverride?: number) => {
+  await client.set(key, JSON.stringify(data), { EX: ttlOverride ?? ttl });
+};
+
+export const getCache = async (key: string) => {
+  const v = await client.get(key);
+  return v ? JSON.parse(v) : null;
+};

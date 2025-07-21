@@ -11,65 +11,140 @@ import {
   handleDisconnect,
   trackConnection,
   updateHeartbeat,
-  isConnectionStale,
 } from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
-import { sendHeartbeat } from "./lib/websocket";
 import { startConnectionMonitoring } from "./lib/connection-stability";
 import Elysia, { t } from "elysia";
 import { prisma } from "./lib/prisma";
 import cors from "@elysiajs/cors";
+import {
+  parseWebhookEvent,
+  verifyAppKeyWithNeynar,
+} from "@farcaster/miniapp-node";
+import { setCache, getCache } from "./lib/redis";
+import { sendNotification } from "./lib/sendNotification";
 
 const app = new Elysia();
 
 app.use(cors());
 
-app.get(
-  "/leaderboard",
-  async ({ query }: { query: { limit: number; page: number; q?: string } }) => {
-    const users = await prisma.user.findMany({
-      orderBy: { points: "desc" },
-      take: query.limit,
-      skip: (query.page - 1) * query.limit,
-    });
-    const allUsers = await prisma.user.findMany({
-      orderBy: { points: "desc" },
-      select: { id: true, fid: true, displayName: true, username: true },
-    });
-    const usersWithRank = users.map((u) => {
-      const rank = allUsers.findIndex((x) => x.id === u.id) + 1;
-      return { ...u, rank };
-    });
-    let searchedUser = null;
-    if (query.q) {
-      const q = query.q.toLowerCase();
-      const found = allUsers.find(
-        (u) =>
-          u.fid.toLowerCase() === q ||
-          u.displayName.toLowerCase() === q ||
-          u.username.toLowerCase() === q
-      );
-      if (found) {
-        const user = await prisma.user.findUnique({ where: { id: found.id } });
-        const rank = allUsers.findIndex((x) => x.id === found.id) + 1;
-        searchedUser = { ...user, rank };
+app
+  .get(
+    "/leaderboard",
+    async ({
+      query,
+    }: {
+      query: { limit: number; page: number; userId?: string };
+    }) => {
+      const cacheKey = `leaderboard:${query.limit}:${query.page}`;
+      const allUsersKey = `leaderboard:allUsers`;
+      const cached = await getCache(cacheKey);
+      const cachedAll = await getCache(allUsersKey);
+      let users, allUsers;
+      if (cached && cachedAll) {
+        users = cached;
+        allUsers = cachedAll;
+      } else {
+        users = await prisma.user.findMany({
+          orderBy: { points: "desc" },
+          take: query.limit,
+          skip: (query.page - 1) * query.limit,
+        });
+        allUsers = await prisma.user.findMany({
+          orderBy: { points: "desc" },
+          select: {
+            id: true,
+            fid: true,
+            displayName: true,
+            username: true,
+            profilePictureUrl: true,
+            points: true,
+          },
+        });
+        await setCache(cacheKey, users, 5);
+        await setCache(allUsersKey, allUsers, 5);
       }
+      const usersWithRank = users.map((u: any) => {
+        const rank = allUsers.findIndex((x: any) => x.id === u.id) + 1;
+        return { ...u, rank };
+      });
+      let caller = null;
+      if (query.userId) {
+        const found = allUsers.find((u: any) => u.fid === query.userId);
+        if (found) {
+          caller = {
+            ...found,
+            rank: allUsers.findIndex((x: any) => x.id === found.id) + 1,
+          };
+        }
+      }
+      return {
+        users: usersWithRank,
+        total: usersWithRank.length,
+        page: query.page,
+        caller,
+      };
+    },
+    {
+      query: t.Object({
+        limit: t.Number({ default: 10 }),
+        page: t.Number({ default: 1 }),
+        userId: t.Optional(t.String()),
+      }),
     }
-    return {
-      users: usersWithRank,
-      total: usersWithRank.length,
-      page: query.page,
-      searchedUser,
-    };
-  },
-  {
-    query: t.Object({
-      limit: t.Number({ default: 10 }),
-      page: t.Number({ default: 1 }),
-      q: t.Optional(t.String()),
-    }),
-  }
-);
+  )
+  .post("/webhook", async ({ body }) => {
+    try {
+      const data = await parseWebhookEvent(body, verifyAppKeyWithNeynar);
+      const { event, fid } = data;
+      let token = null;
+      switch (event.event) {
+        case "frame_added":
+          token = event.notificationDetails?.token;
+          if (token) {
+            const user = await prisma.user.findUnique({
+              where: { fid: fid.toString() },
+            });
+            await sendNotification([token], "you made it!", "daily quizzes heading your way soon", event.notificationDetails?.url!);
+            if (user) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: token },
+              });
+            }
+          }
+          break;
+        case "frame_removed":
+          await prisma.user.update({
+            where: { fid: fid.toString() },
+            data: { notificationToken: null },
+          });
+          break;
+        case "notifications_enabled":
+          token = event.notificationDetails?.token;
+          if (token) {
+            const user = await prisma.user.findUnique({
+              where: { fid: fid.toString() },
+            });
+            if (user) {
+              await prisma.user.update({
+                where: { id: user.id },
+                data: { notificationToken: token },
+              });
+            }
+          }
+          break;
+        case "notifications_disabled":
+          await prisma.user.update({
+            where: { fid: fid.toString() },
+            data: { notificationToken: null },
+          });
+          break;
+      }
+    } catch (e) {}
+    return { message: "Webhook received" };
+  });
+
 app.listen(8080, () => {
   console.log("App Working on port 8080");
 });
@@ -78,7 +153,7 @@ startPeriodicCleanup();
 startConnectionMonitoring();
 
 serve({
-  port: 3000,
+  port: 3001,
   fetch(req, server) {
     if (server.upgrade(req)) {
       return;
