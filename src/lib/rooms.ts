@@ -141,6 +141,28 @@ export const joinRoom = async (
   await createRoomWithPlayers(players, roomId);
 };
 
+export const reconnectUser = async (ws: ServerWebSocket<unknown>, userId: UserId) => {
+  const roomId = await getUserRoom(userId);
+  if (!roomId) return;
+  const data = await getRoomData(roomId);
+  if (!data || !data.players) return;
+  const playerIdx = data.players.findIndex((p: any) => p.userId === userId);
+  if (playerIdx === -1) return;
+  trackConnection(ws, userId);
+  const players = data.players.map((p: any, i: number) => i === playerIdx ? { ...p, ws } : { ...p, ws: [...wsToUser.entries()].find(([w, uid]) => uid === p.userId)?.[0] });
+  if (players.length === 1) {
+    send(ws, "waiting-for-player", { roomId });
+    return;
+  }
+  if (players.length === 2) {
+    const readyPlayers = players.filter((p: any) => p.ws && p.ws.readyState === 1);
+    broadcast(readyPlayers, "room-ready", { players: readyPlayers.map((p: any) => p.userId), startTime: data.gameState?.startTime });
+    if (data.gameState && Date.now() >= data.gameState.startTime) {
+      send(ws, "game-start", { question: data.gameState.currentQuestion, timeLeft: Math.max(0, ROUND_TIME_LIMIT - (Date.now() - data.gameState.startTime)) });
+    }
+  }
+};
+
 const startGame = async (roomId: RoomId) => {
   try {
     const data = await getRoomData(roomId);

@@ -1,7 +1,7 @@
 import { serve } from "bun";
 import type { Message } from "./lib/types";
 import { handleMatchmaking, startPeriodicCleanup } from "./lib/matchmaking";
-import { createRoom, joinRoom, handleGameEvent } from "./lib/rooms";
+import { createRoom, joinRoom, handleGameEvent, reconnectUser } from "./lib/rooms";
 import { handleDisconnect, trackConnection, updateHeartbeat, isConnectionStale } from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
 import { sendHeartbeat } from "./lib/websocket";
@@ -92,6 +92,9 @@ serve({
         case "ping":
           // Respond to client pings
           ws.send(JSON.stringify({ type: "pong", timestamp: data.timestamp }));
+          break;
+        case "reconnect":
+          if (data.userId) reconnectUser(ws, data.userId);
           break;
       }
     },
