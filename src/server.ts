@@ -8,8 +8,12 @@ import { sendHeartbeat } from "./lib/websocket";
 import { startConnectionMonitoring } from "./lib/connection-stability";
 import Elysia, { t } from "elysia";
 import { prisma } from "./lib/prisma";
+import cors from "@elysiajs/cors";
 
 const app = new Elysia();
+
+app.use(cors())
+
 app.get("/leaderboard", async ({query}: {query: {limit: number, page: number}}) => {
     const users = await prisma.user.findMany({
         orderBy: {
