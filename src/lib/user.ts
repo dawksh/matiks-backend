@@ -6,20 +6,19 @@ export const handleUserConnect = async (
   profilePictureUrl: string,
   username: string
 ) => {
-  let user = await prisma.user.findFirst({
-    where: {
-      fid,
-    },
-  });
-  if (!user) {
-    user = await prisma.user.create({
-      data: {
+  const user = await prisma.user.upsert({
+      create: {
         fid,
         displayName,
         profilePictureUrl,
         username,
       },
+      update: {
+        displayName,
+        profilePictureUrl,
+        username,
+      },
+      where: { fid },
     });
-  }
   return user;
 };

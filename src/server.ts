@@ -1,8 +1,18 @@
 import { serve } from "bun";
 import type { Message } from "./lib/types";
 import { handleMatchmaking, startPeriodicCleanup } from "./lib/matchmaking";
-import { createRoom, joinRoom, handleGameEvent, reconnectUser } from "./lib/rooms";
-import { handleDisconnect, trackConnection, updateHeartbeat, isConnectionStale } from "./lib/connections";
+import {
+  createRoom,
+  joinRoom,
+  handleGameEvent,
+  reconnectUser,
+} from "./lib/rooms";
+import {
+  handleDisconnect,
+  trackConnection,
+  updateHeartbeat,
+  isConnectionStale,
+} from "./lib/connections";
 import { handleUserConnect } from "./lib/user";
 import { sendHeartbeat } from "./lib/websocket";
 import { startConnectionMonitoring } from "./lib/connection-stability";
@@ -12,29 +22,56 @@ import cors from "@elysiajs/cors";
 
 const app = new Elysia();
 
-app.use(cors())
+app.use(cors());
 
-app.get("/leaderboard", async ({query}: {query: {limit: number, page: number}}) => {
+app.get(
+  "/leaderboard",
+  async ({ query }: { query: { limit: number; page: number; q?: string } }) => {
     const users = await prisma.user.findMany({
-        orderBy: {
-            points: "desc",
-        },
-        take: query.limit,
-        skip: (query.page -1 ) * query.limit,
+      orderBy: { points: "desc" },
+      take: query.limit,
+      skip: (query.page - 1) * query.limit,
     });
+    const allUsers = await prisma.user.findMany({
+      orderBy: { points: "desc" },
+      select: { id: true, fid: true, displayName: true, username: true },
+    });
+    const usersWithRank = users.map((u) => {
+      const rank = allUsers.findIndex((x) => x.id === u.id) + 1;
+      return { ...u, rank };
+    });
+    let searchedUser = null;
+    if (query.q) {
+      const q = query.q.toLowerCase();
+      const found = allUsers.find(
+        (u) =>
+          u.fid.toLowerCase() === q ||
+          u.displayName.toLowerCase() === q ||
+          u.username.toLowerCase() === q
+      );
+      if (found) {
+        const user = await prisma.user.findUnique({ where: { id: found.id } });
+        const rank = allUsers.findIndex((x) => x.id === found.id) + 1;
+        searchedUser = { ...user, rank };
+      }
+    }
     return {
-        users,
-        total: users.length,
-        page: query.page,
+      users: usersWithRank,
+      total: usersWithRank.length,
+      page: query.page,
+      searchedUser,
     };
-}, {
+  },
+  {
     query: t.Object({
-        limit: t.Number({default: 10}),
-        page: t.Number({default: 1}),
+      limit: t.Number({ default: 10 }),
+      page: t.Number({ default: 1 }),
+      q: t.Optional(t.String()),
     }),
-});
+  }
+);
 app.listen(8080, () => {
-    console.log("App Working on port 8080")
+  console.log("App Working on port 8080");
 });
 
 startPeriodicCleanup();
@@ -54,24 +91,24 @@ serve({
     },
     message(ws, msg) {
       let data: Message;
-      try { 
-        data = JSON.parse(msg.toString()); 
-      } catch { 
+      try {
+        data = JSON.parse(msg.toString());
+      } catch {
         console.error("Invalid JSON message");
-        return; 
+        return;
       }
-      
+
       // Handle heartbeat responses
       if (data.type === "pong") {
         updateHeartbeat(ws);
         return;
       }
-      
+
       // Track connection for user-related messages
       if (data.userId && data.type !== "ping" && data.type !== "pong") {
         trackConnection(ws, data.userId);
       }
-      
+
       switch (data.type) {
         case "join-matchmaking":
           if (data.userId) handleMatchmaking(ws, data.userId);
@@ -80,10 +117,15 @@ serve({
           if (data.userId) createRoom(ws, data.userId);
           break;
         case "join-room":
-          if (data.roomId && data.userId) joinRoom(ws, data.userId, data.roomId);
+          if (data.roomId && data.userId)
+            joinRoom(ws, data.userId, data.roomId);
           break;
         case "submit-answer":
-          if (data.roomId && data.questionId !== undefined && data.answer !== undefined) {
+          if (
+            data.roomId &&
+            data.questionId !== undefined &&
+            data.answer !== undefined
+          ) {
             handleGameEvent(data.type, data.roomId, data);
           }
           break;
@@ -91,7 +133,12 @@ serve({
           if (data.roomId) handleGameEvent(data.type, data.roomId, data);
           break;
         case "register-user":
-            handleUserConnect(data.fid!, data.displayName!, data.profilePictureUrl!, data.username!);
+          handleUserConnect(
+            data.fid!,
+            data.displayName!,
+            data.profilePictureUrl!,
+            data.username!
+          );
           break;
         case "ping":
           // Respond to client pings
@@ -105,8 +152,8 @@ serve({
     close(ws) {
       console.log("Client disconnected");
       handleDisconnect(ws);
-    }
-  }
+    },
+  },
 });
 
 console.log("Bun WebSocket server running on :3000");
