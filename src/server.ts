@@ -153,7 +153,7 @@ startPeriodicCleanup();
 startConnectionMonitoring();
 
 serve({
-  port: 3001,
+  port: 3000,
   fetch(req, server) {
     if (server.upgrade(req)) {
       return;
