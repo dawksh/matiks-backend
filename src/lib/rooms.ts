@@ -227,21 +227,19 @@ const startGame = async (roomId: RoomId) => {
         await delRoomData(roomId);
         const userIds = players.map((p: any) => p.userId);
         
+        const realUserIds = userIds.filter((id: string) => id !== "formula-bot");
         const users = await prisma.user.findMany({
-          where: { fid: { in: userIds } },
+          where: { fid: { in: realUserIds } },
         });
-        
-        if (users.length !== userIds.length) {
-          console.log("User data mismatch:", users, userIds);
+        if (users.length !== realUserIds.length) {
+          console.log("User data mismatch:", users, realUserIds);
           return;
         }
-        
         if (!users.find((u) => u.fid === winners[0])) {
           console.log("Winner not found in database:", winners[0]);
           return;
         }
-        
-        await Promise.all(userIds.map(async (userId: string) => {
+        await Promise.all(realUserIds.map(async (userId: string) => {
           await prisma.user.update({
             where: { fid: userId },
             data: {
@@ -249,7 +247,6 @@ const startGame = async (roomId: RoomId) => {
             },
           });
         }));
-        
         await prisma.game.create({
           data: {
             players: { connect: users.map((u: any) => ({ id: u.id })) },
@@ -257,7 +254,7 @@ const startGame = async (roomId: RoomId) => {
               connect: { id: users.find((u) => u.fid === winners[0])?.id },
             },
             winnerPoints: maxScore,
-            loserPoints: loser ? scores[loser] : 0,
+            loserPoints: loser && loser !== "formula-bot" ? scores[loser] : 0,
           },
         });
       } catch (error) {
