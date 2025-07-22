@@ -1,6 +1,6 @@
 import type { ServerWebSocket } from "bun";
 import type { UserId } from "./types";
-import { queue, removeFromQueue } from "./matchmaking";
+import {  removeFromQueue } from "./matchmaking";
 import {
   setRoomData,
   getRoomData,

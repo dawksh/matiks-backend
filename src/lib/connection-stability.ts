@@ -7,10 +7,10 @@ export const CONNECTION_TIMEOUT = 60000; // 60 seconds
 
 export const startConnectionMonitoring = () => {
   setInterval(() => {
-    const now = Date.now();
     const staleConnections: ServerWebSocket<unknown>[] = [];
     
     for (const [userId, ws] of userToWs.entries()) {
+      if(userId == "formula_bot") continue;
       if (isConnectionStale(ws, CONNECTION_TIMEOUT)) {
         staleConnections.push(ws);
         console.log(`Stale connection detected for user: ${userId}`);
