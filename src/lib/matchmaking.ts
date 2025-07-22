@@ -53,6 +53,17 @@ export const startPeriodicCleanup = () => {
   }, 15000);
 };
 
+export const handleSingleplayer = async (
+  ws: ServerWebSocket<unknown>,
+  userId: UserId
+) => {
+  const botWs = { readyState: 1 } as ServerWebSocket<unknown>;
+  await createRoomWithPlayers([
+    { userId, ws },
+    { userId: "formula-bot", ws: botWs },
+  ]);
+};
+
 const createMatch = async () => {
   await cleanupQueue();
   const all = await getAllQueuedPlayers();

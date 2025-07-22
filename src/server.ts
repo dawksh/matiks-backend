@@ -1,6 +1,6 @@
 import { serve } from "bun";
 import type { Message } from "./lib/types";
-import { handleMatchmaking, startPeriodicCleanup } from "./lib/matchmaking";
+import { handleMatchmaking, startPeriodicCleanup, handleSingleplayer } from "./lib/matchmaking";
 import {
   createRoom,
   joinRoom,
@@ -187,6 +187,9 @@ serve({
       switch (data.type) {
         case "join-matchmaking":
           if (data.userId) handleMatchmaking(ws, data.userId);
+          break;
+        case "singleplayer":
+          if (data.userId) handleSingleplayer(ws, data.userId);
           break;
         case "create-room":
           if (data.userId) createRoom(ws, data.userId);

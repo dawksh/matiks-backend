@@ -56,7 +56,7 @@ ws.onopen = () => {
       username: userId,
     })
   );
-  ws.send(JSON.stringify({ type: "join-matchmaking", userId }));
+  ws.send(JSON.stringify({ type: "singleplayer", userId }));
   console.log("Joined matchmaking queue");
 };
 
