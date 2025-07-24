@@ -147,8 +147,18 @@ app
   .get("/user", async ({ query }) => {
     const user = await prisma.user.findUnique({
       where: { fid: query.fid.toString() },
+      include: {
+        gamesWon: true,
+        gamesPlayed: true
+      }
     });
-    return user;
+    const modifiedUser = {
+      ...user,
+      playtime: user?.gamesPlayed?.length || 0,
+      gamesWon: user?.gamesWon?.length || 0,
+      gamesPlayed: user?.gamesPlayed?.length || 0,
+    }
+    return modifiedUser;
   }, {
     query: t.Object({
       fid: t.String(),
