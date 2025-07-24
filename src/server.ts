@@ -143,6 +143,16 @@ app
       }
     } catch (e) {}
     return { message: "Webhook received" };
+  })
+  .get("/user", async ({ query }) => {
+    const user = await prisma.user.findUnique({
+      where: { fid: query.fid.toString() },
+    });
+    return user;
+  }, {
+    query: t.Object({
+      fid: t.String(),
+    }),
   });
 
 app.listen(8080, () => {
