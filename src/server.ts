@@ -38,47 +38,112 @@ app
     async ({
       query,
     }: {
-      query: { limit: number; page: number; userId?: string, interval?: number };
+      query: {
+        limit: number;
+        page: number;
+        userId?: string;
+        interval?: number;
+      };
     }) => {
-      const cacheKey = `leaderboard:${query.limit}:${query.page}`;
-      const allUsersKey = `leaderboard:allUsers`;
+      const cacheKey = `leaderboard-${query.limit}-${query.page}-${query.interval}`;
       const cached = await getCache(cacheKey);
-      const cachedAll = await getCache(allUsersKey);
-      let users, allUsers;
-      if (cached && cachedAll) {
-        users = cached;
-        allUsers = cachedAll;
+      let usersWithRank: {
+        id: string;
+        fid: string;
+        displayName: string;
+        username: string;
+        profilePictureUrl: string | null;
+        points: number;
+      }[] = [];
+      let leaderboard: {
+        id: string;
+        fid: string;
+        displayName: string;
+        username: string;
+        profilePictureUrl: string | null;
+        points: number;
+      }[] = [];
+      if (cached) {
+        usersWithRank = JSON.parse(cached);
       } else {
-        users = await prisma.user.findMany({
-          orderBy: { points: "desc" },
-          take: query.limit,
-          skip: (query.page - 1) * query.limit,
-        });
-        allUsers = await prisma.user.findMany({
-          orderBy: { points: "desc" },
+        const intervalDays = query.interval ?? 7;
+        const intervalStart = new Date(
+          Date.now() - intervalDays * 24 * 60 * 60 * 1000
+        );
+
+        const gamesInInterval = await prisma.game.findMany({
+          where: { finishedAt: { gte: intervalStart } },
           select: {
             id: true,
-            fid: true,
-            displayName: true,
-            username: true,
-            profilePictureUrl: true,
-            points: true,
+            winnerId: true,
+            loserId: true,
+            winnerPoints: true,
+            loserPoints: true,
+            finishedAt: true,
+            players: {
+              select: {
+                id: true,
+                fid: true,
+                displayName: true,
+                username: true,
+                profilePictureUrl: true,
+              },
+            },
           },
         });
-        await setCache(cacheKey, users, 5);
-        await setCache(allUsersKey, allUsers, 5);
+
+        const userPoints = new Map();
+        for (const g of gamesInInterval) {
+          if (g.winnerId)
+            userPoints.set(
+              g.winnerId,
+              (userPoints.get(g.winnerId) || 0) + (g.winnerPoints || 0)
+            );
+          if (g.loserId)
+            userPoints.set(
+              g.loserId,
+              (userPoints.get(g.loserId) || 0) + (g.loserPoints || 0)
+            );
+        }
+
+        const userIds = Array.from(userPoints.keys());
+        const users =
+          userIds.length > 0
+            ? await prisma.user.findMany({
+                where: { id: { in: userIds } },
+                select: {
+                  id: true,
+                  fid: true,
+                  displayName: true,
+                  username: true,
+                  profilePictureUrl: true,
+                },
+              })
+            : [];
+
+        leaderboard = users.map((u) => ({
+          ...u,
+          points: userPoints.get(u.id) || 0,
+        }));
+        leaderboard.sort((a, b) => b.points - a.points);
+        const paged = leaderboard.slice(
+          (query.page - 1) * query.limit,
+          query.page * query.limit
+        );
+        usersWithRank = paged.map((u) => ({
+          ...u,
+          rank: leaderboard.findIndex((x) => x.id === u.id) + 1,
+        }));
+        await setCache(cacheKey, JSON.stringify(usersWithRank), 60);
       }
-      const usersWithRank = users.map((u: any) => {
-        const rank = allUsers.findIndex((x: any) => x.id === u.id) + 1;
-        return { ...u, rank };
-      });
+
       let caller = null;
       if (query.userId) {
-        const found = allUsers.find((u: any) => u.fid === query.userId);
+        const found = usersWithRank.find((u) => u.fid === query.userId);
         if (found) {
           caller = {
             ...found,
-            rank: allUsers.findIndex((x: any) => x.id === found.id) + 1,
+            rank: usersWithRank.findIndex((x) => x.id === found.id) + 1,
           };
         }
       }
