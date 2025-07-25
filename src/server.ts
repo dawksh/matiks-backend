@@ -25,11 +25,8 @@ import {
   parseWebhookEvent,
   verifyAppKeyWithNeynar,
 } from "@farcaster/miniapp-node";
-import { setCache, getCache, getNextPointsBatch } from "./lib/redis";
+import { setCache, getCache } from "./lib/redis";
 import { sendNotification } from "./lib/sendNotification";
-import { privateKeyToAccount } from "viem/accounts";
-import { createPublicClient, createWalletClient, http } from "viem";
-import { base } from "viem/chains";
 
 const app = new Elysia();
 
@@ -41,7 +38,7 @@ app
     async ({
       query,
     }: {
-      query: { limit: number; page: number; userId?: string };
+      query: { limit: number; page: number; userId?: string, interval?: number };
     }) => {
       const cacheKey = `leaderboard:${query.limit}:${query.page}`;
       const allUsersKey = `leaderboard:allUsers`;
@@ -97,6 +94,7 @@ app
         limit: t.Number({ default: 10 }),
         page: t.Number({ default: 1 }),
         userId: t.Optional(t.String()),
+        interval: t.Optional(t.Number({ default: 7 })),
       }),
     }
   )

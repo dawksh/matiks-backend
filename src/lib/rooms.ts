@@ -286,6 +286,9 @@ const startGame = async (roomId: RoomId) => {
             winner: {
               connect: { id: users.find((u) => u.fid === winners[0])?.id },
             },
+            loser: {
+              connect: { id: users.find((u) => u.fid === loser)?.id },
+            },
             winnerPoints: maxScore,
             loserPoints: loser && loser !== "formula-bot" ? scores[loser] : 0,
           },

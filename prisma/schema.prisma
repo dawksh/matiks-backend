@@ -25,6 +25,7 @@ model User {
   points            Int      @default(0)
   gamesPlayed       Game[]   @relation("GamePlayers")
   gamesWon          Game[]   @relation("GameWinner")
+  gamesLost         Game[]   @relation("GameLoser")
   notificationToken String?
 }
 
@@ -32,7 +33,9 @@ model Game {
   id           String   @id @default(uuid())
   players      User[]   @relation("GamePlayers")
   winner       User     @relation("GameWinner", fields: [winnerId], references: [id])
+  loser        User?    @relation("GameLoser", fields: [loserId], references: [id])
   winnerId     String
+  loserId      String?
   winnerPoints Int
   loserPoints  Int
   finishedAt   DateTime @default(now())
