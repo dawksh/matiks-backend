@@ -1,36 +1,52 @@
-const ws = new WebSocket("ws://localhost:3000/ws");
-// const ws = new WebSocket("wss://matiks-backend-production.up.railway.app/ws");
-const userId = "test-user-" + Math.random().toString(36).slice(2, 7);
-let currentQuestionId: string | null = null;
-let currentRoomId: string | null = null;
+const randomDelay = (min: number, max: number) =>
+  Math.random() * (max - min) + min;
 
-console.log(`Starting test client with userId: ${userId}`);
+const createClient = (userId: string) => {
+  const ws = new WebSocket("ws://localhost:3000/ws");
+  let currentQuestionId: string | null = null;
+  let currentRoomId: string | null = null;
+  let active = true;
 
-const calculateAnswer = (question: string): number => {
-  const [aRaw, op, bRaw] = question.split(/\s*([+\-*/])\s*/);
-  const a = parseInt(aRaw ?? "");
-  const b = parseInt(bRaw ?? "");
-  if (isNaN(a) || isNaN(b)) return 0;
-  return op === "+"
-    ? a + b
-    : op === "-"
-    ? a - b
-    : op === "*"
-    ? a * b
-    : op === "/"
-    ? Math.floor(a / b)
-    : 0;
-};
+  const log = (msg: string, data?: any) =>
+    console.log(`[${userId}] ${msg}`, data ?? "");
 
-const handleQuestion = (question: { id: string; question: string }) => {
-  currentQuestionId = question.id;
-  const answer = calculateAnswer(question.question);
-  console.log(
-    `Processing question ${question.id}: ${question.question} = ${answer}`
-  );
+  const calculateAnswer = (question: string): number => {
+    const [aRaw, op, bRaw] = question.split(/\s*([+\-*/])\s*/);
+    const a = parseInt(aRaw ?? "");
+    const b = parseInt(bRaw ?? "");
+    if (isNaN(a) || isNaN(b)) return 0;
+    return op === "+"
+      ? a + b
+      : op === "-"
+      ? a - b
+      : op === "*"
+      ? a * b
+      : op === "/"
+      ? Math.floor(a / b)
+      : 0;
+  };
 
-  setTimeout(() => {
-    if (currentQuestionId === question.id && currentRoomId) {
+  const maybeDrop = () => {
+    if (Math.random() < 0.05) {
+      log("Simulated disconnect");
+      active = false;
+      ws.close();
+      return true;
+    }
+    return false;
+  };
+
+  const handleQuestion = (question: { id: string; question: string }) => {
+    if (!active || maybeDrop()) return;
+    currentQuestionId = question.id;
+    const answer = calculateAnswer(question.question);
+    log(`Q${question.id}: ${question.question} = ${answer}`);
+    if (Math.random() < 0.1) {
+      log("Skipping answer (simulated user distraction)");
+      return;
+    }
+    setTimeout(() => {
+      if (!active || currentQuestionId !== question.id || !currentRoomId) return;
       ws.send(
         JSON.stringify({
           type: "submit-answer",
@@ -40,90 +56,84 @@ const handleQuestion = (question: { id: string; question: string }) => {
           answer,
         })
       );
-      console.log(`Submitted answer for ${question.id}: ${answer}`);
+      log(`Submitted answer ${answer} for Q${question.id}`);
+    }, randomDelay(800, 3500));
+  };
+
+  ws.onopen = () => {
+    log("Connected");
+    setTimeout(() => {
+      if (!active) return;
+      ws.send(
+        JSON.stringify({
+          type: "register-user",
+          fid: userId,
+          displayName: `@${userId}${Math.floor(Math.random()*100)}`,
+          profilePictureUrl: `https://example.com/profile${Math.floor(Math.random()*10)}.png`,
+          username: userId,
+        })
+      );
+      setTimeout(() => {
+        if (!active) return;
+        ws.send(JSON.stringify({ type: "join-matchmaking", userId }));
+        log("Joined matchmaking queue");
+      }, randomDelay(100, 2000));
+    }, randomDelay(100, 2000));
+  };
+
+  ws.onmessage = (event) => {
+    if (!active) return;
+    try {
+      const message = JSON.parse(event.data);
+      const { type } = message;
+      switch (type) {
+        case "queue-joined":
+          log(`Queue position: ${message.position}`);
+          break;
+        case "match-found":
+          currentRoomId = message.roomId;
+          log(`Matched! Room: ${message.roomId}`);
+          break;
+        case "game-start":
+          log("Game started");
+          handleQuestion(message.question);
+          break;
+        case "next-question":
+          log("Next question");
+          handleQuestion(message.question);
+          break;
+        case "answer-result":
+          log(`Answer ${message.correct ? "✓" : "✗"} for Q${message.questionId}`);
+          break;
+        case "round-end":
+          log("Round ended", message.results);
+          active = false;
+          ws.close();
+          break;
+        case "error":
+          log(`Error: ${message.message}`);
+          active = false;
+          ws.close();
+          break;
+      }
+    } catch (err) {
+      log("Failed to parse message", event.data);
+      active = false;
+      ws.close();
     }
-  }, 1000);
+  };
+
+  ws.onclose = ({ code, reason, wasClean }) =>
+    log("Connection closed", { code, reason, wasClean });
+
+  ws.onerror = (event) => {
+    log("WebSocket error", event);
+    active = false;
+    ws.close();
+  };
 };
 
-ws.onopen = () => {
-  console.log("Connected to server");
-  ws.send(
-    JSON.stringify({
-      type: "register-user",
-      fid: userId,
-      displayName: `@${userId}`,
-      profilePictureUrl: "https://example.com/profile.png",
-      username: userId,
-    })
-  );
-  ws.send(JSON.stringify({ type: "singleplayer", userId }));
-  console.log("Joined matchmaking queue");
-};
-
-ws.onmessage = (event) => {
-  try {
-    const message = JSON.parse(event.data);
-    const { type } = message;
-
-    switch (type) {
-      case "queue-joined":
-        console.log(`Queue position: ${message.position}`);
-        break;
-
-      case "match-found":
-        console.log(`Matched! Room: ${message.roomId}`);
-        currentRoomId = message.roomId;
-        break;
-
-      case "room-ready":
-        const startDelay = (message.startTime - Date.now()) / 1000;
-        console.log(`Room ready with ${message.players.length} players`);
-        console.log(`Game starting in ${startDelay.toFixed(1)}s`);
-        break;
-
-      case "game-start":
-        console.log("Game started!");
-        console.log(message.question);
-        handleQuestion(message.question);
-        break;
-
-      case "next-question":
-        console.log("Received next question");
-        handleQuestion(message.question);
-        break;
-
-      case "point-update":
-        console.log("Score update:", message.scores);
-        break;
-
-      case "answer-result":
-        console.log(
-          `Answer ${message.correct ? "✓" : "✗"} for Q${message.questionId}`
-        );
-        break;
-
-      case "round-end":
-        const { winner, scores, reason } = message.results;
-        console.log("Round ended!", {
-          winner: winner === userId ? "You" : "Opponent",
-          yourScore: scores[userId],
-          opponentScore: Object.values(scores).find(
-            (s) => s !== scores[userId]
-          ),
-          reason,
-        });
-        break;
-
-      case "error":
-        console.error("Server error:", message.message);
-        break;
-    }
-  } catch (err) {
-    console.error("Failed to parse:", event.data);
-  }
-};
-
-ws.onclose = ({ code, reason, wasClean }) =>
-  console.log("Connection closed:", { code, reason, wasClean });
-
-ws.onerror = (event) => console.error("WebSocket error:", event);
+Array.from({ length: 100 }).forEach((_, i) => {
+  const userId = `test-user-${Math.random().toString(36).slice(2, 7)}`;
+  setTimeout(() => createClient(userId), randomDelay(0, 30000));
+});
