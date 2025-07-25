@@ -1,6 +1,10 @@
 import { serve } from "bun";
 import type { Message } from "./lib/types";
-import { handleMatchmaking, startPeriodicCleanup, handleSingleplayer } from "./lib/matchmaking";
+import {
+  handleMatchmaking,
+  startPeriodicCleanup,
+  handleSingleplayer,
+} from "./lib/matchmaking";
 import {
   createRoom,
   joinRoom,
@@ -21,8 +25,11 @@ import {
   parseWebhookEvent,
   verifyAppKeyWithNeynar,
 } from "@farcaster/miniapp-node";
-import { setCache, getCache } from "./lib/redis";
+import { setCache, getCache, getNextPointsBatch } from "./lib/redis";
 import { sendNotification } from "./lib/sendNotification";
+import { privateKeyToAccount } from "viem/accounts";
+import { createPublicClient, createWalletClient, http } from "viem";
+import { base } from "viem/chains";
 
 const app = new Elysia();
 
@@ -105,7 +112,12 @@ app
             const user = await prisma.user.findUnique({
               where: { fid: fid.toString() },
             });
-            await sendNotification([token], "you made it!", "daily quizzes heading your way soon", event.notificationDetails?.url!);
+            await sendNotification(
+              [token],
+              "you made it!",
+              "daily quizzes heading your way soon",
+              event.notificationDetails?.url!
+            );
             if (user) {
               await prisma.user.update({
                 where: { id: user.id },
@@ -144,26 +156,30 @@ app
     } catch (e) {}
     return { message: "Webhook received" };
   })
-  .get("/user", async ({ query }) => {
-    const user = await prisma.user.findUnique({
-      where: { fid: query.fid.toString() },
-      include: {
-        gamesWon: true,
-        gamesPlayed: true
-      }
-    });
-    const modifiedUser = {
-      ...user,
-      playtime: user?.gamesPlayed?.length || 0,
-      gamesWon: user?.gamesWon?.length || 0,
-      gamesPlayed: user?.gamesPlayed?.length || 0,
+  .get(
+    "/user",
+    async ({ query }) => {
+      const user = await prisma.user.findUnique({
+        where: { fid: query.fid.toString() },
+        include: {
+          gamesWon: true,
+          gamesPlayed: true,
+        },
+      });
+      const modifiedUser = {
+        ...user,
+        playtime: user?.gamesPlayed?.length || 0,
+        gamesWon: user?.gamesWon?.length || 0,
+        gamesPlayed: user?.gamesPlayed?.length || 0,
+      };
+      return modifiedUser;
+    },
+    {
+      query: t.Object({
+        fid: t.String(),
+      }),
     }
-    return modifiedUser;
-  }, {
-    query: t.Object({
-      fid: t.String(),
-    }),
-  });
+  );
 
 app.listen(8080, () => {
   console.log("App Working on port 8080");
@@ -253,5 +269,27 @@ serve({
     },
   },
 });
+
+// setInterval(async () => {
+//   const batch = await getNextPointsBatch()
+//   if (batch) {
+// !TODO: Implement send function
+// const account = privateKeyToAccount(process.env.PRIVATE_KEY! as `0x${string}`)
+// const client = createPublicClient({
+//   chain: base,
+//   transport: http(),
+// })
+// const walletClient = createWalletClient({
+//   chain: base,
+//   transport: http(),
+//   account,
+// })
+// const tx = await walletClient.sendTransaction({
+//   address: "0x0000000000000000000000000000000000000000",
+//   value: batch.points,
+// })
+//     console.log("Points sent to", batch.userId, batch.points)
+//   }
+// }, 1000)
 
 console.log("Bun WebSocket server running on :3000");

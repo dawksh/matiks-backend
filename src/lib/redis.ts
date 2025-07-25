@@ -70,3 +70,14 @@ export const getAllQueuedPlayers = async () => {
   const all = await client.lRange(MATCHMAKING_QUEUE_KEY, 0, -1);
   return all.map((p) => JSON.parse(p));
 };
+
+const POINTS_QUEUE_KEY = "points-queue"
+
+export const addToPointsQueue = async (batch: {userId: string, points: number}[]) => {
+  await client.rPush(POINTS_QUEUE_KEY, JSON.stringify(batch));
+};
+
+export const getNextPointsBatch = async () => {
+  const batch = await client.lPop(POINTS_QUEUE_KEY);
+  return batch ? JSON.parse(batch) : null;
+}

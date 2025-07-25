@@ -1,14 +1,14 @@
 import type { ServerWebSocket } from "bun";
 import type { UserId, RoomId, Question } from "./types";
 import { send, broadcast } from "./websocket";
-import { wsToUser, trackConnection, getValidWebSocket } from "./connections";
+import { wsToUser, trackConnection } from "./connections";
 import {
   setRoomData,
   getRoomData,
   delRoomData,
   setUserRoom,
   getUserRoom,
-  delUserRoom,
+  addToPointsQueue,
 } from "./redis";
 import { prisma } from "./prisma";
 
@@ -78,37 +78,37 @@ export const createRoomWithPlayers = async (
     ws: p.ws,
     score: 0,
   }));
-  
+
   const validPlayers = playerObjs.filter((p) => p.ws.readyState === 1);
   if (validPlayers.length !== playerObjs.length) {
     throw new Error("Some players have invalid WebSocket connections");
   }
-  
+
   try {
     await Promise.all(playerObjs.map((p) => setUserRoom(p.userId, roomId)));
     playerObjs.forEach((p) => trackConnection(p.ws, p.userId));
-    
+
     const startTime = Date.now() + READY_TIME;
     const gameState = {
       startTime,
       currentQuestion: generateQuestion(),
       scores: Object.fromEntries(playerObjs.map((p) => [p.userId, 0])),
     };
-    
+
     await setRoomData(roomId, {
       players: playerObjs.map((p) => ({ userId: p.userId, score: p.score })),
       gameState,
     });
-    
+
     playerObjs.forEach((p) => send(p.ws, "match-found", { roomId }));
-    if(!preRoomId) {
+    if (!preRoomId) {
       playerObjs.forEach((p) => send(p.ws, "create-room", { roomId }));
     }
     broadcast(playerObjs, "room-ready", {
       players: playerObjs.map((p) => p.userId),
       startTime,
     });
-    
+
     setTimeout(() => startGame(roomId), READY_TIME);
   } catch (error) {
     console.error("Failed to create room with players:", error);
@@ -135,13 +135,19 @@ export const joinRoom = async (
     return;
   }
   const players = [
-    ...data.players.map((p: any) => ({ userId: p.userId, ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0] })),
-    { userId, ws }
+    ...data.players.map((p: any) => ({
+      userId: p.userId,
+      ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
+    })),
+    { userId, ws },
   ];
   await createRoomWithPlayers(players, roomId);
 };
 
-export const reconnectUser = async (ws: ServerWebSocket<unknown>, userId: UserId) => {
+export const reconnectUser = async (
+  ws: ServerWebSocket<unknown>,
+  userId: UserId
+) => {
   const roomId = await getUserRoom(userId);
   if (!roomId) return;
   const data = await getRoomData(roomId);
@@ -149,16 +155,34 @@ export const reconnectUser = async (ws: ServerWebSocket<unknown>, userId: UserId
   const playerIdx = data.players.findIndex((p: any) => p.userId === userId);
   if (playerIdx === -1) return;
   trackConnection(ws, userId);
-  const players = data.players.map((p: any, i: number) => i === playerIdx ? { ...p, ws } : { ...p, ws: [...wsToUser.entries()].find(([w, uid]) => uid === p.userId)?.[0] });
+  const players = data.players.map((p: any, i: number) =>
+    i === playerIdx
+      ? { ...p, ws }
+      : {
+          ...p,
+          ws: [...wsToUser.entries()].find(([w, uid]) => uid === p.userId)?.[0],
+        }
+  );
   if (players.length === 1) {
     send(ws, "waiting-for-player", { roomId });
     return;
   }
   if (players.length === 2) {
-    const readyPlayers = players.filter((p: any) => p.ws && p.ws.readyState === 1);
-    broadcast(readyPlayers, "room-ready", { players: readyPlayers.map((p: any) => p.userId), startTime: data.gameState?.startTime });
+    const readyPlayers = players.filter(
+      (p: any) => p.ws && p.ws.readyState === 1
+    );
+    broadcast(readyPlayers, "room-ready", {
+      players: readyPlayers.map((p: any) => p.userId),
+      startTime: data.gameState?.startTime,
+    });
     if (data.gameState && Date.now() >= data.gameState.startTime) {
-      send(ws, "game-start", { question: data.gameState.currentQuestion, timeLeft: Math.max(0, ROUND_TIME_LIMIT - (Date.now() - data.gameState.startTime)) });
+      send(ws, "game-start", {
+        question: data.gameState.currentQuestion,
+        timeLeft: Math.max(
+          0,
+          ROUND_TIME_LIMIT - (Date.now() - data.gameState.startTime)
+        ),
+      });
     }
   }
 };
@@ -170,7 +194,7 @@ const startGame = async (roomId: RoomId) => {
       console.log("Room data not found or invalid for game start:", roomId);
       return;
     }
-    
+
     const players = data.players
       .map((p: any) => {
         const ws = [...wsToUser.entries()].find(
@@ -179,30 +203,30 @@ const startGame = async (roomId: RoomId) => {
         return ws && ws.readyState === 1 ? { ...p, ws } : null;
       })
       .filter(Boolean);
-    
+
     if (players.length < 2) {
       console.log("Not enough valid players to start game:", roomId);
       await delRoomData(roomId);
       return;
     }
-    
+
     const initQuestion = generateQuestion();
     const gameState = {
       ...data.gameState,
       currentQuestion: initQuestion,
     };
-    
+
     await setRoomData(roomId, { players: data.players, gameState });
     broadcast(players, "game-start", {
       question: initQuestion,
       timeLeft: ROUND_TIME_LIMIT,
     });
-    
+
     setTimeout(async () => {
       try {
         const d = await getRoomData(roomId);
         if (!d || !d.players || !d.gameState) return;
-        
+
         const scores = d.gameState.scores;
         const playerScores = Object.entries(scores);
         const maxScore = Math.max(
@@ -214,8 +238,13 @@ const startGame = async (roomId: RoomId) => {
         const loser = playerScores.find(
           ([_, score]) => Number(score) !== maxScore
         )?.[0];
-        
+
         const validPlayers = players.filter((p: any) => p.ws.readyState === 1);
+        const points = validPlayers.map((p: any) => ({
+          userId: p.userId,
+          points: p.score,
+        }));
+        await storePoints(points);
         broadcast(validPlayers, "round-end", {
           results: {
             winner: winners.length > 1 ? "tie" : winners[0],
@@ -223,11 +252,13 @@ const startGame = async (roomId: RoomId) => {
             reason: "time_limit",
           },
         });
-        
+
         await delRoomData(roomId);
         const userIds = players.map((p: any) => p.userId);
-        
-        const realUserIds = userIds.filter((id: string) => id !== "formula-bot");
+
+        const realUserIds = userIds.filter(
+          (id: string) => id !== "formula-bot"
+        );
         const users = await prisma.user.findMany({
           where: { fid: { in: realUserIds } },
         });
@@ -239,14 +270,16 @@ const startGame = async (roomId: RoomId) => {
           console.log("Winner not found in database:", winners[0]);
           return;
         }
-        await Promise.all(realUserIds.map(async (userId: string) => {
-          await prisma.user.update({
-            where: { fid: userId },
-            data: {
-              points: { increment: scores[userId] },
-            },
-          });
-        }));
+        await Promise.all(
+          realUserIds.map(async (userId: string) => {
+            await prisma.user.update({
+              where: { fid: userId },
+              data: {
+                points: { increment: scores[userId] },
+              },
+            });
+          })
+        );
         await prisma.game.create({
           data: {
             players: { connect: users.map((u: any) => ({ id: u.id })) },
@@ -277,40 +310,40 @@ export const handleGameEvent = async (
       console.log("Invalid room data for game event:", roomId);
       return;
     }
-    
+
     const playersWithWs = d.players
       .map((p: { userId: string; score: number }) => ({
         ...p,
         ws: [...wsToUser.entries()].find(([ws, uid]) => uid === p.userId)?.[0],
       }))
       .filter((p: any) => p.ws && p.ws.readyState === 1);
-    
+
     if (type === "submit-answer") {
       const { userId, answer } = data;
       const question = d.gameState.currentQuestion;
       const isCorrect = question && question.answer === answer;
-      
+
       if (!isCorrect) return;
-      
+
       d.gameState.scores[userId] = (d.gameState.scores[userId] || 0) + 1;
       d.players = d.players.map((p: any) =>
         p.userId === userId ? { ...p, score: d.gameState.scores[userId] } : p
       );
-      
+
       broadcast(playersWithWs, "point-update", {
         userId,
         scores: d.gameState.scores,
       });
-      
+
       broadcast(playersWithWs, "answer-result", {
         userId,
         questionId: question.id,
         correct: isCorrect,
       });
-      
+
       const nextQuestion = generateQuestion();
       d.gameState.currentQuestion = nextQuestion;
-      
+
       await setRoomData(roomId, { players: d.players, gameState: d.gameState });
       broadcast(playersWithWs, "next-question", { question: nextQuestion });
     } else {
@@ -319,4 +352,12 @@ export const handleGameEvent = async (
   } catch (error) {
     console.error("Error handling game event:", error);
   }
+};
+
+const storePoints = async (players: { userId: string; score: number }[]) => {
+  const batch = players.map((p) => ({
+    userId: p.userId,
+    points: p.score > 10 ? 5000 : 1000,
+  }));
+  await addToPointsQueue(batch);
 };
