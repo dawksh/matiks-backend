@@ -280,19 +280,32 @@ const startGame = async (roomId: RoomId) => {
             });
           })
         );
-        await prisma.game.create({
-          data: {
-            players: { connect: users.map((u: any) => ({ id: u.id })) },
-            winner: {
-              connect: { id: users.find((u) => u.fid === winners[0])?.id },
+        if (loser && loser !== "formula-bot") {
+          await prisma.game.create({
+            data: {
+              players: { connect: users.map((u: any) => ({ id: u.id })) },
+              winner: {
+                connect: { id: users.find((u) => u.fid === winners[0])?.id },
+              },
+              loser: {
+                connect: { id: users.find((u) => u.fid === loser)?.id },
+              },
+              winnerPoints: maxScore,
+              loserPoints: loser && loser !== "formula-bot" ? scores[loser] : 0,
             },
-            loser: {
-              connect: { id: users.find((u) => u.fid === loser)?.id },
+          });
+        } else {
+          await prisma.game.create({
+            data: {
+              players: { connect: users.map((u: any) => ({ id: u.id })) },
+              winner: {
+                connect: { id: users.find((u) => u.fid === winners[0])?.id },
+              },
+              winnerPoints: maxScore,
+              loserPoints: loser && loser !== "formula-bot" ? scores[loser] : 0,
             },
-            winnerPoints: maxScore,
-            loserPoints: loser && loser !== "formula-bot" ? scores[loser] : 0,
-          },
-        });
+          }); 
+        }
       } catch (error) {
         console.error("Error in round end:", error);
       }
